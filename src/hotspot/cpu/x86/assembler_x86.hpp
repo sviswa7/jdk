@@ -311,12 +311,24 @@ class Address {
     return _base->is_valid() && _base->encoding() >= 8;
   }
 
+  bool base_needs_rex2() const {
+    return _base->is_valid() && _base->encoding() >= 16;
+  }
+
   bool index_needs_rex() const {
     return _index->is_valid() &&_index->encoding() >= 8;
   }
 
+  bool index_needs_rex2() const {
+    return _index->is_valid() &&_index->encoding() >= 16;
+  }
+
   bool xmmindex_needs_rex() const {
     return _xmmindex->is_valid() && ((_xmmindex->encoding() & 8) == 8);
+  }
+
+  bool xmmindex_needs_rex2() const {
+    return _xmmindex->is_valid() && _xmmindex->encoding() >= 16;
   }
 
   relocInfo::relocType reloc() const { return _rspec.type(); }
@@ -508,10 +520,150 @@ class Assembler : public AbstractAssembler  {
     REX_WRX    = 0x4E,
     REX_WRXB   = 0x4F,
 
+    REX2             = 0xd500,
+    REX2_B           = 0xd501,
+    REX2_X           = 0xd502,
+    REX2_XB          = 0xd503,
+    REX2_R           = 0xd504,
+    REX2_RB          = 0xd505,
+    REX2_RX          = 0xd506,
+    REX2_RXB         = 0xd507,
+    REX2_W           = 0xd508,
+    REX2_WB          = 0xd509,
+    REX2_WX          = 0xd50a,
+    REX2_WXB         = 0xd50b,
+    REX2_WR          = 0xd50c,
+    REX2_WRB         = 0xd50d,
+    REX2_WRX         = 0xd50e,
+    REX2_WRXB        = 0xd50f,
+    REX2_B4          = 0xd510,
+    REX2_B4B         = 0xd511,
+    REX2_B4X         = 0xd512,
+    REX2_B4XB        = 0xd513,
+    REX2_B4R         = 0xd514,
+    REX2_B4RB        = 0xd515,
+    REX2_B4RX        = 0xd516,
+    REX2_B4RXB       = 0xd517,
+    REX2_B4W         = 0xd518,
+    REX2_B4WB        = 0xd519,
+    REX2_B4WX        = 0xd51a,
+    REX2_B4WXB       = 0xd51b,
+    REX2_B4WR        = 0xd51c,
+    REX2_B4WRB       = 0xd51d,
+    REX2_B4WRX       = 0xd51e,
+    REX2_B4WRXB      = 0xd51f,
+    REX2_X4          = 0xd520,
+    REX2_X4B         = 0xd521,
+    REX2_X4X         = 0xd522,
+    REX2_X4XB        = 0xd523,
+    REX2_X4R         = 0xd524,
+    REX2_X4RB        = 0xd525,
+    REX2_X4RX        = 0xd526,
+    REX2_X4RXB       = 0xd527,
+    REX2_X4W         = 0xd528,
+    REX2_X4WB        = 0xd529,
+    REX2_X4WX        = 0xd52a,
+    REX2_X4WXB       = 0xd52b,
+    REX2_X4WR        = 0xd52c,
+    REX2_X4WRB       = 0xd52d,
+    REX2_X4WRX       = 0xd52e,
+    REX2_X4WRXB      = 0xd52f,
+    REX2_X4B4        = 0xd530,
+    REX2_X4B4B       = 0xd531,
+    REX2_X4B4X       = 0xd532,
+    REX2_X4B4XB      = 0xd533,
+    REX2_X4B4R       = 0xd534,
+    REX2_X4B4RB      = 0xd535,
+    REX2_X4B4RX      = 0xd536,
+    REX2_X4B4RXB     = 0xd537,
+    REX2_X4B4W       = 0xd538,
+    REX2_X4B4WB      = 0xd539,
+    REX2_X4B4WX      = 0xd53a,
+    REX2_X4B4WXB     = 0xd53b,
+    REX2_X4B4WR      = 0xd53c,
+    REX2_X4B4WRB     = 0xd53d,
+    REX2_X4B4WRX     = 0xd53e,
+    REX2_X4B4WRXB    = 0xd53f,
+    REX2_R4          = 0xd540,
+    REX2_R4B         = 0xd541,
+    REX2_R4X         = 0xd542,
+    REX2_R4XB        = 0xd543,
+    REX2_R4R         = 0xd544,
+    REX2_R4RB        = 0xd545,
+    REX2_R4RX        = 0xd546,
+    REX2_R4RXB       = 0xd547,
+    REX2_R4W         = 0xd548,
+    REX2_R4WB        = 0xd549,
+    REX2_R4WX        = 0xd54a,
+    REX2_R4WXB       = 0xd54b,
+    REX2_R4WR        = 0xd54c,
+    REX2_R4WRB       = 0xd54d,
+    REX2_R4WRX       = 0xd54e,
+    REX2_R4WRXB      = 0xd54f,
+    REX2_R4B4        = 0xd550,
+    REX2_R4B4B       = 0xd551,
+    REX2_R4B4X       = 0xd552,
+    REX2_R4B4XB      = 0xd553,
+    REX2_R4B4R       = 0xd554,
+    REX2_R4B4RB      = 0xd555,
+    REX2_R4B4RX      = 0xd556,
+    REX2_R4B4RXB     = 0xd557,
+    REX2_R4B4W       = 0xd558,
+    REX2_R4B4WB      = 0xd559,
+    REX2_R4B4WX      = 0xd55a,
+    REX2_R4B4WXB     = 0xd55b,
+    REX2_R4B4WR      = 0xd55c,
+    REX2_R4B4WRB     = 0xd55d,
+    REX2_R4B4WRX     = 0xd55e,
+    REX2_R4B4WRXB    = 0xd55f,
+    REX2_R4X4        = 0xd560,
+    REX2_R4X4B       = 0xd561,
+    REX2_R4X4X       = 0xd562,
+    REX2_R4X4XB      = 0xd563,
+    REX2_R4X4R       = 0xd564,
+    REX2_R4X4RB      = 0xd565,
+    REX2_R4X4RX      = 0xd566,
+    REX2_R4X4RXB     = 0xd567,
+    REX2_R4X4W       = 0xd568,
+    REX2_R4X4WB      = 0xd569,
+    REX2_R4X4WX      = 0xd56a,
+    REX2_R4X4WXB     = 0xd56b,
+    REX2_R4X4WR      = 0xd56c,
+    REX2_R4X4WRB     = 0xd56d,
+    REX2_R4X4WRX     = 0xd56e,
+    REX2_R4X4WRXB    = 0xd56f,
+    REX2_R4X4B4      = 0xd570,
+    REX2_R4X4B4B     = 0xd571,
+    REX2_R4X4B4X     = 0xd572,
+    REX2_R4X4B4XB    = 0xd573,
+    REX2_R4X4B4R     = 0xd574,
+    REX2_R4X4B4RB    = 0xd575,
+    REX2_R4X4B4RX    = 0xd576,
+    REX2_R4X4B4RXB   = 0xd577,
+    REX2_R4X4B4W     = 0xd578,
+    REX2_R4X4B4WB    = 0xd579,
+    REX2_R4X4B4WX    = 0xd57a,
+    REX2_R4X4B4WXB   = 0xd57b,
+    REX2_R4X4B4WR    = 0xd57c,
+    REX2_R4X4B4WRB   = 0xd57d,
+    REX2_R4X4B4WRX   = 0xd57e,
+    REX2_R4X4B4WRXB  = 0xd57f,
+
     VEX_3bytes = 0xC4,
     VEX_2bytes = 0xC5,
     EVEX_4bytes = 0x62,
     Prefix_EMPTY = 0x0
+  };
+
+  enum PrefixBits {
+    REXBIT_B  = 0x01,
+    REXBIT_X  = 0x02,
+    REXBIT_R  = 0x04,
+    REXBIT_W  = 0x08,
+    REX2BIT_B4 = 0x10,
+    REX2BIT_X4 = 0x20,
+    REX2BIT_R4 = 0x40,
+    REX2BIT_M0 = 0x80
   };
 
   enum VexPrefix {
@@ -529,6 +681,13 @@ class Assembler : public AbstractAssembler  {
     EVEX_Z  = 0x80
   };
 
+  enum ExtEvexPrefix {
+    EEVEX_R = 0x10,
+    EEVEX_B = 0x08,
+    EEVEX_X = 0x40,
+    EEVEX_V = 0x08
+  };
+  
   enum EvexRoundPrefix {
     EVEX_RNE = 0x0,
     EVEX_RD  = 0x1,
@@ -689,30 +848,44 @@ private:
   // 64bit prefixes
   void prefix(Register reg);
   void prefix(Register dst, Register src, Prefix p);
+  void prefix_rex2(Register dst, Register src, Prefix p);
   void prefix(Register dst, Address adr, Prefix p);
+  void prefix_rex2(Register dst, Address adr, Prefix p);
 
   void prefix(Address adr);
+  void prefix_rex2(Address adr);
   void prefix(Address adr, Register reg,  bool byteinst = false);
+  void prefix_rex2(Address adr, Register reg,  bool byteinst = false);
   void prefix(Address adr, XMMRegister reg);
+  void prefix_rex2(Address adr, XMMRegister reg);
 
   int prefix_and_encode(int reg_enc, bool byteinst = false);
+  int prefix_and_encode_rex2(int reg_enc);
   int prefix_and_encode(int dst_enc, int src_enc) {
     return prefix_and_encode(dst_enc, false, src_enc, false);
   }
   int prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
 
+  int prefix_and_encode_rex2(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
   // Some prefixq variants always emit exactly one prefix byte, so besides a
   // prefix-emitting method we provide a method to get the prefix byte to emit,
   // which can then be folded into a byte stream.
-  int8_t get_prefixq(Address adr);
-  int8_t get_prefixq(Address adr, Register reg);
+  int get_prefixq(Address adr, bool isPage1 = false);
+  int get_prefixq_rex2(Address adr, bool isPage1 = false);
+  int get_prefixq(Address adr, Register reg, bool isPage1 = false);
+  int get_prefixq_rex2(Address adr, Register reg, bool isPage1 = false);
 
   void prefixq(Address adr);
   void prefixq(Address adr, Register reg);
   void prefixq(Address adr, XMMRegister reg);
+  void prefixq_rex2(Address adr, XMMRegister src);
+
+  bool prefix_is_rex2(int prefix);
 
   int prefixq_and_encode(int reg_enc);
+  int prefixq_and_encode_rex2(int reg_enc);
   int prefixq_and_encode(int dst_enc, int src_enc);
+  int prefixq_and_encode_rex2(int dst_enc, int src_enc);
 
   void rex_prefix(Address adr, XMMRegister xreg,
                   VexSimdPrefix pre, VexOpcode opc, bool rex_w);
@@ -723,6 +896,10 @@ private:
 
   void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
                    int nds_enc, VexSimdPrefix pre, VexOpcode opc);
+
+  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r,
+                       bool eevex_r, bool eevex_b, bool eevex_x,
+                       int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
   void vex_prefix(Address adr, int nds_enc, int xreg_enc,
                   VexSimdPrefix pre, VexOpcode opc,
@@ -821,6 +998,8 @@ private:
   void emit_data64(jlong data, relocInfo::relocType rtype, int format = 0);
   void emit_data64(jlong data, RelocationHolder const& rspec, int format = 0);
 
+  void emit_prefix_and_int8(int prefix, int b1);
+
   bool always_reachable(AddressLiteral adr) NOT_LP64( { return true; } );
   bool        reachable(AddressLiteral adr) NOT_LP64( { return true; } );
 
@@ -906,6 +1085,8 @@ private:
 
   // Instruction prefixes
   void prefix(Prefix p);
+
+  void prefix16(int p);
 
   public:
 

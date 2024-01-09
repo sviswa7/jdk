@@ -294,11 +294,7 @@ void Assembler::emit_data(jint data, RelocationHolder const& rspec, int format) 
 }
 
 static int encode(Register r) {
-  int enc = r->encoding();
-  if (enc >= 8) {
-    enc -= 8;
-  }
-  return enc;
+  return r->encoding() & 7;
 }
 
 void Assembler::emit_arith_b(int op1, int op2, Register dst, int imm8) {
@@ -616,8 +612,8 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
     if (is_valid_encoding(index_enc)) {
       assert(scale != Address::no_scale, "inconsistent address");
       // [base + index*scale + disp]
-      if (disp == 0 && no_relocation &&
-          base_enc != rbp->encoding() LP64_ONLY(&& base_enc != r13->encoding())) {
+      if (disp == 0 && no_relocation && base_enc != rbp->encoding()
+          LP64_ONLY(&& base_enc != r13->encoding() && base_enc != 21 && base_enc != 29)) {
         // [base + index*scale]
         // [00 reg 100][ss index base]
         emit_modrm_sib(0b00, reg_enc, 0b100,
@@ -635,7 +631,8 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
                        scale, index_enc, base_enc);
         emit_data(disp, rspec, disp32_operand);
       }
-    } else if (base_enc == rsp->encoding() LP64_ONLY(|| base_enc == r12->encoding())) {
+    } else if (base_enc == rsp->encoding() LP64_ONLY(|| base_enc == r12->encoding()
+              || base_enc == 20 || base_enc == 28)) {
       // [rsp + disp]
       if (disp == 0 && no_relocation) {
         // [rsp]
@@ -657,9 +654,11 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
       }
     } else {
       // [base + disp]
-      assert(base_enc != rsp->encoding() LP64_ONLY(&& base_enc != r12->encoding()), "illegal addressing mode");
-      if (disp == 0 && no_relocation &&
-          base_enc != rbp->encoding() LP64_ONLY(&& base_enc != r13->encoding())) {
+      assert(base_enc != rsp->encoding() LP64_ONLY(&& base_enc != r12->encoding()
+             && base_enc != 20 && base_enc != 28), "illegal addressing mode");
+      if (disp == 0 && no_relocation
+          && base_enc != rbp->encoding() LP64_ONLY(&& base_enc != r13->encoding()
+          && base_enc != 21 && base_enc != 29)) {
         // [base]
         // [00 reg base]
         emit_modrm(0, reg_enc, base_enc);
@@ -11573,6 +11572,56 @@ void Assembler::evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, boo
   emit_int32(EVEX_4bytes, byte2, byte3, byte4);
 }
 
+void Assembler::ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
+                       bool eevex_r, bool eevex_b, bool eevex_x,
+                       int nds_enc, VexSimdPrefix pre, VexOpcode opc) {
+  // EVEX 0x62 prefix
+  // byte1 = EVEX_4bytes;
+
+  bool vex_w = _attributes->is_rex_vex_w();
+  int evex_encoding = (vex_w ? VEX_W : 0);
+  // EVEX.b is not currently used for broadcast of single element or data rounding modes
+  _attributes->set_evex_encoding(evex_encoding);
+
+  // P0: byte 2, initialized to RXBR`00mm
+  // instead of not'd
+  int byte2 = (vex_r ? VEX_R : 0) | (vex_x ? VEX_X : 0) | (vex_b ? VEX_B : 0) | (evex_r ? EVEX_Rb : 0) 
+            | (eevex_r ? EEVEX_R : 0) | (eevex_b ? EEVEX_B : 0) | (eevex_x ? EEVEX_X : 0);
+  byte2 = (~byte2) & 0xF0;
+  // confine opc opcode extensions in mm bits to lower two bits
+  // of form {0F, 0F_38, 0F_3A}
+  byte2 |= opc;
+
+  // P1: byte 3 as Wvvvv1pp
+  int byte3 = ((~nds_enc) & 0xf) << 3;
+  // p[10] is always 1
+  // byte3 |= EVEX_F;
+  byte3 |= eevex_x ? 0 : EEVEX_X; // inverted logic
+  byte3 |= (vex_w & 1) << 7;
+  // confine pre opcode extensions in pp bits to lower two bits
+  // of form {66, F3, F2}
+  byte3 |= pre;
+
+  // P2: byte 4 as zL'Lbv'aaa
+  // kregs are implemented in the low 3 bits as aaa
+  int byte4 = (_attributes->is_no_reg_mask()) ?
+              0 :
+              _attributes->get_embedded_opmask_register_specifier();
+  // EVEX.v` for extending EVEX.vvvv or VIDX
+  byte4 |= (evex_v ? 0: EVEX_V);
+  // third EXEC.b for broadcast actions
+  byte4 |= (_attributes->is_extended_context() ? EVEX_Rb : 0);
+  // fourth EVEX.L'L for vector length : 0 is 128, 1 is 256, 2 is 512, currently we do not support 1024
+  byte4 |= ((_attributes->get_vector_len())& 0x3) << 5;
+  // last is EVEX.z for zero/merge actions
+  if (_attributes->is_no_reg_mask() == false &&
+      _attributes->get_embedded_opmask_register_specifier() != 0) {
+    byte4 |= (_attributes->is_clear_context() ? EVEX_Z : 0);
+  }
+
+  emit_int32(EVEX_4bytes, byte2, byte3, byte4);
+}
+
 void Assembler::vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes) {
   bool vex_r = (xreg_enc & 8) == 8;
   bool vex_b = adr.base_needs_rex();
@@ -12654,12 +12703,20 @@ void Assembler::emit_data64(jlong data,
 }
 
 void Assembler::prefix(Register reg) {
-  if (reg->encoding() >= 8) {
+  if (reg->encoding() >= 24) {
+    prefix16(REX2_B4B);
+  } else if (reg->encoding() >=16) {
+    prefix16(REX2_B4);
+  } else if (reg->encoding() >= 8) {
     prefix(REX_B);
   }
 }
 
 void Assembler::prefix(Register dst, Register src, Prefix p) {
+  if ((p & REX2) || src->encoding() >= 16 || dst->encoding() >= 16) {
+    prefix_rex2(dst, src, p);
+    return;
+  }
   if (src->encoding() >= 8) {
     p = (Prefix)(p | REX_B);
   }
@@ -12672,7 +12729,32 @@ void Assembler::prefix(Register dst, Register src, Prefix p) {
   }
 }
 
+void Assembler::prefix_rex2(Register dst, Register src, Prefix p) {
+  p = (Prefix)(p & ~REX & REX2);
+  if (src->encoding() >= 24) {
+    p = (Prefix)(p | REX2_B4B);
+  } else if (src->encoding() >= 16) {
+    p = (Prefix)(p | REX2_B4);
+  } else if (src->encoding() >= 8) {
+    p = (Prefix)(p | REX2_B);
+  }
+  if (dst->encoding() >= 24) {
+    p = (Prefix)(p | REX2_R4R);
+  } else if (dst->encoding() >= 16) {
+    p = (Prefix)(p | REX2_R4);
+  } else if (dst->encoding() >= 8) {
+    p = (Prefix)(p | REX2_R);
+  }
+  if (p != Prefix_EMPTY) {
+    // do not generate an empty prefix
+    prefix(p);
+  }
+}
+
 void Assembler::prefix(Register dst, Address adr, Prefix p) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || dst->encoding() >= 16) {
+    prefix_rex2(dst, adr, p);
+  }
   if (adr.base_needs_rex()) {
     if (adr.index_needs_rex()) {
       assert(false, "prefix(Register dst, Address adr, Prefix p) does not support handling of an X");
@@ -12693,7 +12775,35 @@ void Assembler::prefix(Register dst, Address adr, Prefix p) {
   }
 }
 
+void Assembler::prefix_rex2(Register dst, Address adr, Prefix p) {
+  if (adr.index_needs_rex2()) {
+    assert(false, "prefix(Register dst, Address adr, Prefix p) does not support handling of an X");
+  }
+  if (adr.base()->encoding() >= 24) {
+    p = (Prefix)(p | REX2_B4B);
+  } else if (adr.base()->encoding() >= 16) {
+    p = (Prefix)(p | REX2_B4);
+  } else if (adr.base()->encoding() >= 8) {
+    p = (Prefix)(p | REX2_B);
+  }
+  if (dst->encoding() >= 24) {
+    p = (Prefix)(p | REX2_R4R);
+  } else if (dst->encoding() >= 16) {
+    p = (Prefix)(p | REX2_R4);
+  } else if (dst->encoding() >= 8) {
+    p = (Prefix)(p | REX2_R);
+  }
+  if (p != Prefix_EMPTY) {
+    // do not generate an empty prefix
+    prefix16(p);
+  }
+}
+
 void Assembler::prefix(Address adr) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefix_rex2(adr);
+    return;
+  }
   if (adr.base_needs_rex()) {
     if (adr.index_needs_rex()) {
       prefix(REX_XB);
@@ -12707,7 +12817,58 @@ void Assembler::prefix(Address adr) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr) {
+  if (adr.base()->encoding() >= 24) {
+    if (adr.index()->encoding() >= 24) {
+      prefix16(REX2_X4B4XB);
+    } else if (adr.index()->encoding() >= 16) {
+      prefix16(REX2_X4B4B);
+    } else if (adr.index()->encoding() >= 8) {
+      prefix16(REX2_B4XB);
+    } else {
+      prefix16(REX2_B4B);
+    }
+  }
+  else if (adr.base()->encoding() >= 16) {
+    if (adr.index()->encoding() >= 24) {
+      prefix16(REX2_X4B4X);
+    } else if (adr.index()->encoding() >= 16) {
+      prefix16(REX2_X4B4);
+    } else if (adr.index()->encoding() >= 8) {
+      prefix16(REX2_B4X);
+    } else {
+      prefix16(REX2_B4);
+    }
+  }
+  else if (adr.base()->encoding() >= 8) {
+    if (adr.index()->encoding() >= 24) {
+      prefix16(REX2_X4XB);
+    } else if (adr.index()->encoding() >= 16) {
+      prefix16(REX2_X4B);
+    } else if (adr.index()->encoding() >= 8) {
+      prefix16(REX2_XB);
+    } else {
+      prefix16(REX2_B);
+    }
+  }
+  else {
+    if (adr.index()->encoding() >= 24) {
+      prefix16(REX2_X4X);
+    } else if (adr.index()->encoding() >= 16) {
+      prefix16(REX2_X4);
+    } else if (adr.index()->encoding() >= 8) {
+      prefix16(REX2_X);
+    } else {
+      prefix16(REX2);
+    }
+  }
+}
+
 void Assembler::prefix(Address adr, Register reg, bool byteinst) {
+  if (reg->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefix_rex2(adr, reg);
+    return;
+  }
   if (reg->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12739,7 +12900,201 @@ void Assembler::prefix(Address adr, Register reg, bool byteinst) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr, Register reg, bool byteinst) {
+  if (reg->encoding() >= 24) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4RXB);
+      } else {
+        prefix16(REX2_R4B4R);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4RX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4R);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4RX);
+      } else {
+        prefix16(REX2_R4B4R);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4RXB);
+      } else {
+        prefix16(REX2_R4RB);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4RX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4R);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4RX);
+      } else {
+        prefix16(REX2_R4);
+      }
+    }
+  }
+  else if (reg->encoding() >= 16) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4XB);
+      } else {
+        prefix16(REX2_R4B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4X);
+      } else {
+        prefix16(REX2_R4B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4XB);
+      } else {
+        prefix16(REX2_R4B);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4X);
+      } else {
+        prefix16(REX2_R4);
+      }
+    }
+  }
+  else if (reg->encoding() >= 8) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+  }
+  else {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4XB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4X);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_XB);
+      } else {
+        prefix16(REX2_B);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4X);
+      } else if (adr.index()->encoding() >= 16) {
+        assert(false, "should not reach here");
+        prefix16(REX2_X4);
+      } else if (adr.index()->encoding() >= 8) {
+        assert(false, "should not reach here");
+        prefix16(REX2_X);
+      } else if (byteinst && reg->encoding() >= 4) {
+        assert(false, "should not reach here");
+        prefix16(REX2);
+      }
+    }
+  }
+}
+
 void Assembler::prefix(Address adr, XMMRegister reg) {
+  if (reg->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefixq_rex2(adr, reg);
+    return;
+  }
   if (reg->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12769,7 +13124,197 @@ void Assembler::prefix(Address adr, XMMRegister reg) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr, XMMRegister src) {
+  if (src->encoding() >= 24) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4RXB);
+      } else {
+        prefix16(REX2_R4B4R);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4RX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4R);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4RX);
+      } else {
+        prefix16(REX2_R4B4R);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4RXB);
+      } else {
+        prefix16(REX2_R4RB);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4RX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4R);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4RX);
+      } else {
+        prefix16(REX2_R4);
+      }
+    }
+  }
+  else if (src->encoding() >= 16) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4XB);
+      } else {
+        prefix16(REX2_R4B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4X);
+      } else {
+        prefix16(REX2_R4B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4XB);
+      } else {
+        prefix16(REX2_R4B);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4X);
+      } else {
+        prefix16(REX2_R4);
+      }
+    }
+  }
+  else if (src->encoding() >= 8) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4RXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4RB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4RXB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+  }
+  else {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4XB);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4X);
+      } else {
+        prefix16(REX2_B4);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4XB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_XB);
+      } else {
+        prefix16(REX2_B);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4X);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_X);
+      } else {
+        prefix16(REX2);
+      }
+    }
+  }
+}
+
 int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
+  if (reg_enc >= 16) {
+    return prefix_and_encode_rex2(reg_enc);
+  }
   if (reg_enc >= 8) {
     prefix(REX_B);
     reg_enc -= 8;
@@ -12779,7 +13324,21 @@ int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
   return reg_enc;
 }
 
+int Assembler::prefix_and_encode_rex2(int reg_enc) {
+  if (reg_enc >= 24) {
+    prefix16(REX2_B4B);
+    reg_enc -= 24;
+  } else if (reg_enc >= 16) {
+    prefix16(REX2_B4);
+    reg_enc -= 16;
+  }
+  return reg_enc;
+}
+
 int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte) {
+  if (src_enc >= 16 || dst_enc >= 16) {
+    return prefix_and_encode_rex2(dst_enc, dst_is_byte, src_enc, src_is_byte);
+  }
   if (dst_enc < 8) {
     if (src_enc >= 8) {
       prefix(REX_B);
@@ -12799,13 +13358,66 @@ int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, boo
   return dst_enc << 3 | src_enc;
 }
 
-int8_t Assembler::get_prefixq(Address adr) {
-  int8_t prfx = get_prefixq(adr, rax);
-  assert(REX_W <= prfx && prfx <= REX_WXB, "must be");
-  return prfx;
+void Assembler::prefix16(int prefix) {
+  emit_int8((prefix & 0xff00) >> 8);
+  emit_int8(prefix & 0xff);
 }
 
-int8_t Assembler::get_prefixq(Address adr, Register src) {
+int Assembler::prefix_and_encode_rex2(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte) {
+  if (dst_enc >= 24) {
+    dst_enc -= 24;
+    if (src_enc >= 24) {
+      src_enc -= 24;
+      prefix16(REX2_R4B4RB);
+    }
+    else if (src_enc >= 16) {
+      src_enc -= 16;
+      prefix16(REX2_R4B4R);
+    }
+  }
+  else if (dst_enc >= 16) {
+    dst_enc -= 16;
+    if (src_enc >= 24) {
+      src_enc -= 24;
+      prefix16(REX2_R4B4B);
+    }
+    else if (src_enc >= 16) {
+      src_enc -= 16;
+      prefix16(REX2_R4B4);
+    }
+  }
+  return dst_enc << 3 | src_enc;
+}
+
+bool Assembler::prefix_is_rex2(int prefix) {
+  return (prefix & 0xFF00) == REX2;
+}
+
+int Assembler::get_prefixq(Address adr, bool isPage1) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    return get_prefixq_rex2(adr, isPage1);  
+  }
+  int8_t prfx = get_prefixq(adr, rax);
+  assert(REX_W <= prfx && prfx <= REX2_X4B4W, "must be");
+  return (int16_t)prfx;
+}
+
+int Assembler::get_prefixq_rex2(Address adr, bool isPage1) {
+  int bits = REXBIT_W;
+  if (isPage1) bits |= REX2BIT_M0;
+  if (adr.base()->encoding() >= 24) bits |= REX2BIT_B4 | REXBIT_B;
+  else if (adr.base()->encoding() >= 16) bits |= REX2BIT_B4;
+  else if (adr.base()->encoding() >= 8) bits |= REXBIT_B;
+  if (adr.index()->encoding() >= 24) bits |= REX2BIT_X4 | REXBIT_X;
+  else if (adr.index()->encoding() >= 16) bits |= REX2BIT_X4;
+  else if (adr.index()->encoding() >= 8) bits |= REXBIT_X;
+  return REX2 | bits;
+}
+
+int Assembler::get_prefixq(Address adr, Register src, bool isPage1) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || src->encoding() >= 16) {
+    return get_prefixq_rex2(adr, src, isPage1);
+  }
   int8_t prfx = (int8_t)(REX_W +
                          ((int)adr.base_needs_rex()) +
                          ((int)adr.index_needs_rex() << 1) +
@@ -12844,15 +13456,42 @@ int8_t Assembler::get_prefixq(Address adr, Register src) {
   return prfx;
 }
 
+int Assembler::get_prefixq_rex2(Address adr, Register src, bool isPage1) {
+  int bits = REXBIT_W;
+  if (isPage1) bits |= REX2BIT_M0;
+  if (adr.base()->encoding() >= 24) bits |= (REX2BIT_B4 | REXBIT_B);
+  else if (adr.base()->encoding() >= 16) bits |= REX2BIT_B4;
+  else if (adr.base()->encoding() >= 8) bits |= REXBIT_B;
+  if (adr.index()->encoding() >= 24) bits |= (REX2BIT_X4 | REXBIT_X);
+  else if (adr.index()->encoding() >= 16) bits |= REX2BIT_X4;
+  else if (adr.index()->encoding() >= 8) bits |= REXBIT_X;
+  if (src->encoding() >= 24) bits |= (REX2BIT_R4 | REXBIT_R);
+  else if (src->encoding() >= 16) bits |= REX2BIT_R4;
+  else if (src->encoding() >= 8) bits |= REXBIT_R;
+  return REX2 | bits;
+}
+
 void Assembler::prefixq(Address adr) {
-  emit_int8(get_prefixq(adr));
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    emit_int16(get_prefixq_rex2(adr)); 
+  } else { 
+    emit_int8(get_prefixq(adr));
+  }
 }
 
 void Assembler::prefixq(Address adr, Register src) {
-  emit_int8(get_prefixq(adr, src));
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || src->encoding() >= 16) {
+    emit_int16(get_prefixq_rex2(adr, src));
+  } else {
+    emit_int8(get_prefixq(adr, src));
+  }
 }
 
 void Assembler::prefixq(Address adr, XMMRegister src) {
+  if (src->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefixq_rex2(adr, src);
+    return;
+  }
   if (src->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12884,7 +13523,197 @@ void Assembler::prefixq(Address adr, XMMRegister src) {
   }
 }
 
+void Assembler::prefixq_rex2(Address adr, XMMRegister src) {
+  if (src->encoding() >= 24) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4WRXB);
+      } else {
+        prefix16(REX2_R4B4WR);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4WRX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4WR);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4WRX);
+      } else {
+        prefix16(REX2_R4B4WR);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4WRXB);
+      } else {
+        prefix16(REX2_R4WRB);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4WRX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4WR);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4WRX);
+      } else {
+        prefix16(REX2_R4W);
+      }
+    }
+  }
+  else if (src->encoding() >= 16) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4WXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4WB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4WXB);
+      } else {
+        prefix16(REX2_R4B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4B4WX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4B4W);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4B4WX);
+      } else {
+        prefix16(REX2_R4B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4WXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4WB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4WXB);
+      } else {
+        prefix16(REX2_R4WB);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_R4X4WX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_R4X4W);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_R4WX);
+      } else {
+        prefix16(REX2_R4W);
+      }
+    }
+  }
+  else if (src->encoding() >= 8) {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WRXB);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WRXB);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WRXB);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WRXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4WRB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WRXB);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+  }
+  else {
+    if (adr.base()->encoding() >= 24) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4WB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WXB);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 16) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4B4WX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4B4W);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_B4WX);
+      } else {
+        prefix16(REX2_B4W);
+      }
+    }
+    else if (adr.base()->encoding() >= 8) {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4WXB);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4WB);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_WXB);
+      } else {
+        prefix16(REX2_WB);
+      }
+    }
+    else {
+      if (adr.index()->encoding() >= 24) {
+        prefix16(REX2_X4WX);
+      } else if (adr.index()->encoding() >= 16) {
+        prefix16(REX2_X4W);
+      } else if (adr.index()->encoding() >= 8) {
+        prefix16(REX2_WX);
+      } else {
+        prefix16(REX2_W);
+      }
+    }
+  }
+}
+
 int Assembler::prefixq_and_encode(int reg_enc) {
+  if (reg_enc >= 16) {
+    return prefixq_and_encode_rex2(reg_enc);
+  }
   if (reg_enc < 8) {
     prefix(REX_W);
   } else {
@@ -12894,7 +13723,21 @@ int Assembler::prefixq_and_encode(int reg_enc) {
   return reg_enc;
 }
 
+int Assembler::prefixq_and_encode_rex2(int reg_enc) {
+  if (reg_enc >= 24) {
+    prefix16(REX2_B4WB);
+    reg_enc -= 24;
+  } else if (reg_enc >= 16) {
+    prefix16(REX2_B4W);
+    reg_enc -= 16;
+  }
+  return reg_enc;
+}
+
 int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
+  if (dst_enc >= 16 || src_enc >= 16) {
+    return prefixq_and_encode_rex2(dst_enc, src_enc);
+  }
   if (dst_enc < 8) {
     if (src_enc < 8) {
       prefix(REX_W);
@@ -12914,6 +13757,40 @@ int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
   return dst_enc << 3 | src_enc;
 }
 
+int Assembler::prefixq_and_encode_rex2(int dst_enc, int src_enc) {
+  if (dst_enc >= 24) {
+    dst_enc -= 24;
+    if (src_enc >= 24) {
+      src_enc -= 24;
+      prefix16(REX2_R4B4WRB);
+    }
+    else if (src_enc >= 16) {
+      src_enc -= 16;
+      prefix16(REX2_R4B4WR);
+    }
+  }
+  else if (dst_enc >= 16) {
+    dst_enc -= 16;
+    if (src_enc >= 24) {
+      src_enc -= 24;
+      prefix16(REX2_R4B4WB);
+    }
+    else if (src_enc >= 16) {
+      src_enc -= 16;
+      prefix16(REX2_R4B4W);
+    }
+  }
+  return dst_enc << 3 | src_enc;
+}
+
+void Assembler::emit_prefix_and_int8(int prefix, int b1) {
+  if ((prefix & 0xFF00) == 0) {
+    emit_int16(prefix, b1);
+  } else {
+    emit_int24((prefix & 0xFF00) >> 8, prefix & 0x00FF, b1);
+  }
+}
+
 void Assembler::adcq(Register dst, int32_t imm32) {
   (void) prefixq_and_encode(dst->encoding());
   emit_arith(0x81, 0xD0, dst, imm32);
@@ -12921,7 +13798,7 @@ void Assembler::adcq(Register dst, int32_t imm32) {
 
 void Assembler::adcq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x13);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x13);
   emit_operand(dst, src, 0);
 }
 
@@ -12938,7 +13815,7 @@ void Assembler::addq(Address dst, int32_t imm32) {
 
 void Assembler::addq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x01);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x01);
   emit_operand(src, dst, 0);
 }
 
@@ -12949,7 +13826,7 @@ void Assembler::addq(Register dst, int32_t imm32) {
 
 void Assembler::addq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x03);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x03);
   emit_operand(dst, src, 0);
 }
 
@@ -12991,7 +13868,7 @@ void Assembler::andq(Register dst, int32_t imm32) {
 
 void Assembler::andq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x23);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x23);
   emit_operand(dst, src, 0);
 }
 
@@ -13002,7 +13879,7 @@ void Assembler::andq(Register dst, Register src) {
 
 void Assembler::andq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x21);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x21);
   emit_operand(src, dst, 0);
 }
 
@@ -13133,7 +14010,12 @@ void Assembler::cmovq(Condition cc, Register dst, Register src) {
 
 void Assembler::cmovq(Condition cc, Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst), 0x0F, (0x40 | cc));
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (0x40 | cc));
+  } else {
+    emit_int24(prefix, 0x0F, (0x40 | cc));
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13150,7 +14032,7 @@ void Assembler::cmpq(Register dst, int32_t imm32) {
 
 void Assembler::cmpq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x39);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x39);
   emit_operand(src, dst, 0);
 }
 
@@ -13161,13 +14043,18 @@ void Assembler::cmpq(Register dst, Register src) {
 
 void Assembler::cmpq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x3B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x3B);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::cmpxchgq(Register reg, Address adr) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(adr, reg), 0x0F, (unsigned char)0xB1);
+  int prefix = get_prefixq(adr, reg, true /* M0 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xB1);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xB1);
+  }
   emit_operand(reg, adr, 0);
 }
 
@@ -13245,25 +14132,29 @@ void Assembler::decq(Register dst) {
 void Assembler::decq(Address dst) {
   // Don't use it directly. Use MacroAssembler::decrementq() instead.
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xFF);
   emit_operand(rcx, dst, 0);
 }
 
+// can't use REX2
 void Assembler::fxrstor(Address src) {
   emit_int24(get_prefixq(src), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(1), src, 0);
 }
 
+// can't use REX2
 void Assembler::xrstor(Address src) {
   emit_int24(get_prefixq(src), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(5), src, 0);
 }
 
+// can't use REX2
 void Assembler::fxsave(Address dst) {
   emit_int24(get_prefixq(dst), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(0), dst, 0);
 }
 
+// cant use REX2
 void Assembler::xsave(Address dst) {
   emit_int24(get_prefixq(dst), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(4), dst, 0);
@@ -13315,7 +14206,12 @@ void Assembler::imulq(Register dst, Register src, int value) {
 
 void Assembler::imulq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst), 0x0F, (unsigned char)0xAF);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xAF);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xAF);
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13336,7 +14232,7 @@ void Assembler::incq(Register dst) {
 void Assembler::incq(Address dst) {
   // Don't use it directly. Use MacroAssembler::incrementq() instead.
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xFF);
   emit_operand(rax, dst, 0);
 }
 
@@ -13346,7 +14242,7 @@ void Assembler::lea(Register dst, Address src) {
 
 void Assembler::leaq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x8D);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x8D);
   emit_operand(dst, src, 0);
 }
 
@@ -13443,19 +14339,19 @@ void Assembler::movq(Register dst, Register src) {
 
 void Assembler::movq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x8B);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x8B);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::movq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), (unsigned char)0x89);
+  emit_prefix_and_int8(get_prefixq(dst, src), (unsigned char)0x89);
   emit_operand(src, dst, 0);
 }
 
 void Assembler::movq(Address dst, int32_t imm32) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xC7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC7);
   emit_operand(as_Register(0), dst, 4);
   emit_int32(imm32);
 }
@@ -13468,9 +14364,12 @@ void Assembler::movq(Register dst, int32_t imm32) {
 
 void Assembler::movsbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xBE);
+  int prefix = get_prefixq(src, dst, true /* page1 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xBE);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xBE);
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13482,14 +14381,14 @@ void Assembler::movsbq(Register dst, Register src) {
 void Assembler::movslq(Address dst, int32_t imm32) {
   assert(is_simm32(imm32), "lost bits");
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xC7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC7);
   emit_operand(rax, dst, 4);
   emit_int32(imm32);
 }
 
 void Assembler::movslq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x63);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x63);
   emit_operand(dst, src, 0);
 }
 
@@ -13500,9 +14399,13 @@ void Assembler::movslq(Register dst, Register src) {
 
 void Assembler::movswq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xBF);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  if (prefix_is_rex2(prefix))
+  {
+    emit_prefix_and_int8(prefix, (unsigned char)0xBF);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xBF);
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13513,9 +14416,12 @@ void Assembler::movswq(Register dst, Register src) {
 
 void Assembler::movzbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xB6);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xB6);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xB6);
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13526,9 +14432,12 @@ void Assembler::movzbq(Register dst, Register src) {
 
 void Assembler::movzwq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xB7);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xB7);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xB7);
+  }
   emit_operand(dst, src, 0);
 }
 
@@ -13539,7 +14448,7 @@ void Assembler::movzwq(Register dst, Register src) {
 
 void Assembler::mulq(Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(src), (unsigned char)0xF7);
   emit_operand(rsp, src, 0);
 }
 
@@ -13562,7 +14471,7 @@ void Assembler::negq(Register dst) {
 
 void Assembler::negq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xF7);
   emit_operand(as_Register(3), dst, 0);
 }
 
@@ -13574,9 +14483,12 @@ void Assembler::notq(Register dst) {
 void Assembler::btsq(Address dst, int imm8) {
   assert(isByte(imm8), "not a byte");
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst),
-             0x0F,
-             (unsigned char)0xBA);
+  int prefix = get_prefixq(dst, true /* page1 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_int24((prefix & 0xFF00) >> 8, prefix & 0x00FF, (unsigned char)0xBA);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xBA);
+  }
   emit_operand(rbp /* 5 */, dst, 1);
   emit_int8(imm8);
 }
@@ -13584,9 +14496,12 @@ void Assembler::btsq(Address dst, int imm8) {
 void Assembler::btrq(Address dst, int imm8) {
   assert(isByte(imm8), "not a byte");
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst),
-             0x0F,
-             (unsigned char)0xBA);
+  int prefix = get_prefixq(dst, true /* page1 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xBA);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xBA);
+  }
   emit_operand(rsi /* 6 */, dst, 1);
   emit_int8(imm8);
 }
@@ -13599,7 +14514,7 @@ void Assembler::orq(Address dst, int32_t imm32) {
 
 void Assembler::orq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), (unsigned char)0x09);
+  emit_prefix_and_int8(get_prefixq(dst, src), (unsigned char)0x09);
   emit_operand(src, dst, 0);
 }
 
@@ -13615,7 +14530,7 @@ void Assembler::orq_imm32(Register dst, int32_t imm32) {
 
 void Assembler::orq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x0B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x0B);
   emit_operand(dst, src, 0);
 }
 
@@ -13643,7 +14558,7 @@ void Assembler::popcntq(Register dst, Register src) {
 
 void Assembler::popq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0x8F);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0x8F);
   emit_operand(rax, dst, 0);
 }
 
@@ -13788,7 +14703,7 @@ void Assembler::vzeroall() {
 
 void Assembler::pushq(Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(src), (unsigned char)0xFF);
   emit_operand(rsi, src, 0);
 }
 
@@ -13851,11 +14766,11 @@ void Assembler::salq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(4), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(4), dst, 1);
     emit_int8(imm8);
   }
@@ -13863,7 +14778,7 @@ void Assembler::salq(Address dst, int imm8) {
 
 void Assembler::salq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(4), dst, 0);
 }
 
@@ -13886,11 +14801,11 @@ void Assembler::sarq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(7), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(7), dst, 1);
     emit_int8(imm8);
   }
@@ -13898,7 +14813,7 @@ void Assembler::sarq(Address dst, int imm8) {
 
 void Assembler::sarq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(7), dst, 0);
 }
 
@@ -13931,7 +14846,7 @@ void Assembler::sbbq(Register dst, int32_t imm32) {
 
 void Assembler::sbbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x1B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x1B);
   emit_operand(dst, src, 0);
 }
 
@@ -13973,7 +14888,7 @@ void Assembler::shrq(Register dst) {
 
 void Assembler::shrq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(5), dst, 0);
 }
 
@@ -13981,11 +14896,11 @@ void Assembler::shrq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(5), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(5), dst, 1);
     emit_int8(imm8);
   }
@@ -13999,7 +14914,7 @@ void Assembler::subq(Address dst, int32_t imm32) {
 
 void Assembler::subq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x29);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x29);
   emit_operand(src, dst, 0);
 }
 
@@ -14016,7 +14931,7 @@ void Assembler::subq_imm32(Register dst, int32_t imm32) {
 
 void Assembler::subq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x2B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x2B);
   emit_operand(dst, src, 0);
 }
 
@@ -14027,7 +14942,7 @@ void Assembler::subq(Register dst, Register src) {
 
 void Assembler::testq(Address dst, int32_t imm32) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xF7);
   emit_operand(as_Register(0), dst, 4);
   emit_int32(imm32);
 }
@@ -14055,19 +14970,24 @@ void Assembler::testq(Register dst, Register src) {
 
 void Assembler::testq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x85);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x85);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::xaddq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst, src), 0x0F, (unsigned char)0xC1);
+  int prefix = get_prefixq(dst, src, true /* page1 */);
+  if (prefix_is_rex2(prefix)) {
+    emit_prefix_and_int8(prefix, (unsigned char)0xC1);
+  } else {
+    emit_int24(prefix, 0x0F, (unsigned char)0xC1);
+  }
   emit_operand(src, dst, 0);
 }
 
 void Assembler::xchgq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x87);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x87);
   emit_operand(dst, src, 0);
 }
 
@@ -14083,7 +15003,7 @@ void Assembler::xorq(Register dst, Register src) {
 
 void Assembler::xorq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x33);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x33);
   emit_operand(dst, src, 0);
 }
 
@@ -14100,7 +15020,7 @@ void Assembler::xorq(Address dst, int32_t imm32) {
 
 void Assembler::xorq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x31);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x31);
   emit_operand(src, dst, 0);
 }
 
