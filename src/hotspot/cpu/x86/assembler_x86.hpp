@@ -684,7 +684,7 @@ class Assembler : public AbstractAssembler  {
   enum ExtEvexPrefix {
     EEVEX_R = 0x10,
     EEVEX_B = 0x08,
-    EEVEX_X = 0x40,
+    EEVEX_X = 0x04,
     EEVEX_V = 0x08
   };
   
@@ -845,12 +845,17 @@ private:
   InstructionAttr *_attributes;
   void set_attributes(InstructionAttr* attributes);
 
+  int get_base_prefix_bits(int enc);
+  int get_index_prefix_bits(int enc);
+  int get_index_prefix_bits(Register index);
+  int get_reg_prefix_bits(int enc);
+
   // 64bit prefixes
   void prefix(Register reg);
   void prefix(Register dst, Register src, Prefix p);
-  void prefix_rex2(Register dst, Register src, Prefix p);
+  void prefix_rex2(Register dst, Register src);
   void prefix(Register dst, Address adr, Prefix p);
-  void prefix_rex2(Register dst, Address adr, Prefix p);
+  void prefix_rex2(Register dst, Address adr);
 
   void prefix(Address adr);
   void prefix_rex2(Address adr);
@@ -866,7 +871,7 @@ private:
   }
   int prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
 
-  int prefix_and_encode_rex2(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
+  int prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits = 0);
   // Some prefixq variants always emit exactly one prefix byte, so besides a
   // prefix-emitting method we provide a method to get the prefix byte to emit,
   // which can then be folded into a byte stream.
