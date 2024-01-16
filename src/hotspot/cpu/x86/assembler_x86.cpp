@@ -12678,10 +12678,8 @@ int Assembler::get_reg_prefix_bits(int enc) {
 }
 
 void Assembler::prefix(Register reg) {
-  if (reg->encoding() >= 24) {
-    prefix16(REX2_B4B);
-  } else if (reg->encoding() >=16) {
-    prefix16(REX2_B4);
+  if (reg->encoding() >= 16) {
+    prefix16(REX2 | get_base_prefix_bits(reg->encoding()));
   } else if (reg->encoding() >= 8) {
     prefix(REX_B);
   }
@@ -12870,11 +12868,8 @@ int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
 }
 
 int Assembler::prefix_and_encode_rex2(int reg_enc) {
-  int bits = 0;
-  bits |= get_base_prefix_bits(reg_enc);
-  prefix16(REX2 | bits);
-  reg_enc -= reg_enc >= 24 ? 24 : reg_enc >= 16 ? 16 : 0;
-  return reg_enc;
+  prefix16(REX2 | get_base_prefix_bits(reg_enc));
+  return reg_enc & 0xF;
 }
 
 int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte) {
@@ -12904,11 +12899,9 @@ int Assembler::prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits) {
   int bits = init_bits;
   bits |= get_reg_prefix_bits(dst_enc);
   bits |= get_base_prefix_bits(dst_enc);
-  if (bits & REX2BIT_R4) dst_enc -= 16; 
-  if (bits & REXBIT_R) dst_enc -= 8; 
-  if (bits & REX2BIT_B4) src_enc -= 16; 
-  if (bits & REXBIT_B) src_enc -= 8; 
-  prefix16(REX2 & bits);
+  dst_enc &= 0x7;
+  src_enc &= 0x7;  
+  prefix16(REX2 | bits);
   return dst_enc << 3 | src_enc;
 }
 
@@ -12921,7 +12914,7 @@ int Assembler::get_prefixq(Address adr, bool isPage1) {
     return get_prefixq_rex2(adr, isPage1);  
   }
   int8_t prfx = get_prefixq(adr, rax);
-  assert(REX_W <= prfx && prfx <= REX2_X4B4W, "must be");
+  assert(REX_W <= prfx && prfx <= REX_WXB, "must be");
   return isPage1 ? (((int16_t)prfx) << 8) | 0x0F : (int16_t)prfx;
 }
 
@@ -13058,14 +13051,8 @@ int Assembler::prefixq_and_encode(int reg_enc) {
 }
 
 int Assembler::prefixq_and_encode_rex2(int reg_enc) {
-  if (reg_enc >= 24) {
-    prefix16(REX2_B4WB);
-    reg_enc -= 24;
-  } else if (reg_enc >= 16) {
-    prefix16(REX2_B4W);
-    reg_enc -= 16;
-  }
-  return reg_enc;
+  prefix16(REX2 | REXBIT_W | get_base_prefix_bits(reg_enc));
+  return reg_enc & 0xF;
 }
 
 int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
