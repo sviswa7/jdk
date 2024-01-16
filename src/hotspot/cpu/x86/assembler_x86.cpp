@@ -294,11 +294,7 @@ void Assembler::emit_data(jint data, RelocationHolder const& rspec, int format) 
 }
 
 static int encode(Register r) {
-  int enc = r->encoding();
-  if (enc >= 8) {
-    enc -= 8;
-  }
-  return enc;
+  return r->encoding() & 7;
 }
 
 void Assembler::emit_arith_b(int op1, int op2, Register dst, int imm8) {
@@ -616,8 +612,7 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
     if (is_valid_encoding(index_enc)) {
       assert(scale != Address::no_scale, "inconsistent address");
       // [base + index*scale + disp]
-      if (disp == 0 && no_relocation &&
-          base_enc != rbp->encoding() LP64_ONLY(&& base_enc != r13->encoding())) {
+      if (disp == 0 && no_relocation && ((base_enc & 0x7) != 5)) {       
         // [base + index*scale]
         // [00 reg 100][ss index base]
         emit_modrm_sib(0b00, reg_enc, 0b100,
@@ -635,7 +630,7 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
                        scale, index_enc, base_enc);
         emit_data(disp, rspec, disp32_operand);
       }
-    } else if (base_enc == rsp->encoding() LP64_ONLY(|| base_enc == r12->encoding())) {
+    } else if ((base_enc & 0x7) == 4) {
       // [rsp + disp]
       if (disp == 0 && no_relocation) {
         // [rsp]
@@ -657,9 +652,8 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
       }
     } else {
       // [base + disp]
-      assert(base_enc != rsp->encoding() LP64_ONLY(&& base_enc != r12->encoding()), "illegal addressing mode");
-      if (disp == 0 && no_relocation &&
-          base_enc != rbp->encoding() LP64_ONLY(&& base_enc != r13->encoding())) {
+      assert(((base_enc & 0x7) != 4), "illegal addressing mode");
+      if (disp == 0 && no_relocation &&  ((base_enc & 0x7) != 5)) {
         // [base]
         // [00 reg base]
         emit_modrm(0, reg_enc, base_enc);
@@ -5323,6 +5317,11 @@ void Assembler::prefetchw(Address src) {
 
 void Assembler::prefix(Prefix p) {
   emit_int8(p);
+}
+
+void Assembler::prefix16(int prefix) {
+  emit_int8((prefix & 0xff00) >> 8);
+  emit_int8(prefix & 0xff);
 }
 
 void Assembler::pshufb(XMMRegister dst, XMMRegister src) {
@@ -12653,13 +12652,44 @@ void Assembler::emit_data64(jlong data,
   emit_int64(data);
 }
 
+int Assembler::get_base_prefix_bits(int enc) {
+  int bits = 0;
+  if (enc & 16) bits |= REX2BIT_B4; 
+  if (enc & 8) bits |= REXBIT_B; 
+  return bits;
+}
+
+int Assembler::get_index_prefix_bits(int enc) {
+  int bits = 0;
+  if (enc & 16) bits |= REX2BIT_X4; 
+  if (enc & 8) bits |= REXBIT_X; 
+  return bits;
+}
+
+int Assembler::get_index_prefix_bits(Register index) {
+  return index->is_valid() ? get_index_prefix_bits(index->encoding()) : 0; 
+}
+
+int Assembler::get_reg_prefix_bits(int enc) {
+  int bits = 0;
+  if (enc & 16) bits |= REX2BIT_R4; 
+  if (enc & 8) bits |= REXBIT_R; 
+  return bits;
+}
+
 void Assembler::prefix(Register reg) {
-  if (reg->encoding() >= 8) {
+  if (reg->encoding() >= 16) {
+    prefix16(REX2 | get_base_prefix_bits(reg->encoding()));
+  } else if (reg->encoding() >= 8) {
     prefix(REX_B);
   }
 }
 
 void Assembler::prefix(Register dst, Register src, Prefix p) {
+  if ((p & REX2) || src->encoding() >= 16 || dst->encoding() >= 16) {
+    prefix_rex2(dst, src);
+    return;
+  }
   if (src->encoding() >= 8) {
     p = (Prefix)(p | REX_B);
   }
@@ -12672,7 +12702,17 @@ void Assembler::prefix(Register dst, Register src, Prefix p) {
   }
 }
 
+void Assembler::prefix_rex2(Register dst, Register src) {
+  int bits = 0;
+  bits |= get_base_prefix_bits(src->encoding());
+  bits |= get_reg_prefix_bits(dst->encoding());
+  prefix16(REX2 | bits);
+}
+
 void Assembler::prefix(Register dst, Address adr, Prefix p) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || dst->encoding() >= 16) {
+    prefix_rex2(dst, adr);
+  }
   if (adr.base_needs_rex()) {
     if (adr.index_needs_rex()) {
       assert(false, "prefix(Register dst, Address adr, Prefix p) does not support handling of an X");
@@ -12693,7 +12733,21 @@ void Assembler::prefix(Register dst, Address adr, Prefix p) {
   }
 }
 
+void Assembler::prefix_rex2(Register dst, Address adr) {
+  if (adr.index_needs_rex2()) {
+    assert(false, "prefix(Register dst, Address adr, Prefix p) does not support handling of an X");
+  }
+  int bits = 0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_reg_prefix_bits(dst->encoding());
+  prefix16(REX2 | bits);
+}
+
 void Assembler::prefix(Address adr) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefix_rex2(adr);
+    return;
+  }
   if (adr.base_needs_rex()) {
     if (adr.index_needs_rex()) {
       prefix(REX_XB);
@@ -12707,7 +12761,18 @@ void Assembler::prefix(Address adr) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr) {
+  int bits = 0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  prefix16(REX2 | bits);
+}
+
 void Assembler::prefix(Address adr, Register reg, bool byteinst) {
+  if (reg->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefix_rex2(adr, reg, byteinst);
+    return;
+  }
   if (reg->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12739,7 +12804,19 @@ void Assembler::prefix(Address adr, Register reg, bool byteinst) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr, Register reg, bool byteinst) {
+  int bits = 0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  bits |= get_reg_prefix_bits(reg->encoding());
+  prefix16(REX2 | bits);
+}
+
 void Assembler::prefix(Address adr, XMMRegister reg) {
+  if (reg->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefixq_rex2(adr, reg);
+    return;
+  }
   if (reg->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12769,7 +12846,18 @@ void Assembler::prefix(Address adr, XMMRegister reg) {
   }
 }
 
+void Assembler::prefix_rex2(Address adr, XMMRegister src) {
+  int bits = 0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  bits |= get_reg_prefix_bits(src->encoding()); 
+  prefix16(REX2 | bits);
+}
+
 int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
+  if (reg_enc >= 16) {
+    return prefix_and_encode_rex2(reg_enc);
+  }
   if (reg_enc >= 8) {
     prefix(REX_B);
     reg_enc -= 8;
@@ -12779,7 +12867,15 @@ int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
   return reg_enc;
 }
 
+int Assembler::prefix_and_encode_rex2(int reg_enc) {
+  prefix16(REX2 | get_base_prefix_bits(reg_enc));
+  return reg_enc & 0x7;
+}
+
 int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte) {
+  if (src_enc >= 16 || dst_enc >= 16) {
+    return prefix_and_encode_rex2(dst_enc, src_enc);
+  }
   if (dst_enc < 8) {
     if (src_enc >= 8) {
       prefix(REX_B);
@@ -12799,13 +12895,41 @@ int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, boo
   return dst_enc << 3 | src_enc;
 }
 
-int8_t Assembler::get_prefixq(Address adr) {
-  int8_t prfx = get_prefixq(adr, rax);
-  assert(REX_W <= prfx && prfx <= REX_WXB, "must be");
-  return prfx;
+int Assembler::prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits) {
+  int bits = init_bits;
+  bits |= get_reg_prefix_bits(dst_enc);
+  bits |= get_base_prefix_bits(dst_enc);
+  dst_enc &= 0x7;
+  src_enc &= 0x7;  
+  prefix16(REX2 | bits);
+  return dst_enc << 3 | src_enc;
 }
 
-int8_t Assembler::get_prefixq(Address adr, Register src) {
+bool Assembler::prefix_is_rex2(int prefix) {
+  return (prefix & 0xFF00) == REX2;
+}
+
+int Assembler::get_prefixq(Address adr, bool isPage1) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    return get_prefixq_rex2(adr, isPage1);  
+  }
+  int8_t prfx = get_prefixq(adr, rax);
+  assert(REX_W <= prfx && prfx <= REX_WXB, "must be");
+  return isPage1 ? (((int16_t)prfx) << 8) | 0x0F : (int16_t)prfx;
+}
+
+int Assembler::get_prefixq_rex2(Address adr, bool isPage1) {
+  int bits = REXBIT_W;
+  if (isPage1) bits |= REX2BIT_M0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  return REX2 | bits;
+}
+
+int Assembler::get_prefixq(Address adr, Register src, bool isPage1) {
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || src->encoding() >= 16) {
+    return get_prefixq_rex2(adr, src, isPage1);
+  }
   int8_t prfx = (int8_t)(REX_W +
                          ((int)adr.base_needs_rex()) +
                          ((int)adr.index_needs_rex() << 1) +
@@ -12841,18 +12965,39 @@ int8_t Assembler::get_prefixq(Address adr, Register src) {
     }
   }
 #endif
-  return prfx;
+  return isPage1 ? (((int16_t)prfx) << 8) | 0x0F : (int16_t)prfx;
+}
+
+int Assembler::get_prefixq_rex2(Address adr, Register src, bool isPage1) {
+  int bits = REXBIT_W;
+  if (isPage1) bits |= REX2BIT_M0;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  bits |= get_reg_prefix_bits(src->encoding()); 
+  return REX2 | bits;
 }
 
 void Assembler::prefixq(Address adr) {
-  emit_int8(get_prefixq(adr));
+  if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    emit_int16(get_prefixq_rex2(adr)); 
+  } else { 
+    emit_int8(get_prefixq(adr));
+  }
 }
 
 void Assembler::prefixq(Address adr, Register src) {
-  emit_int8(get_prefixq(adr, src));
+  if (adr.base_needs_rex2() || adr.index_needs_rex2() || src->encoding() >= 16) {
+    emit_int16(get_prefixq_rex2(adr, src));
+  } else {
+    emit_int8(get_prefixq(adr, src));
+  }
 }
 
 void Assembler::prefixq(Address adr, XMMRegister src) {
+  if (src->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
+    prefixq_rex2(adr, src);
+    return;
+  }
   if (src->encoding() < 8) {
     if (adr.base_needs_rex()) {
       if (adr.index_needs_rex()) {
@@ -12884,7 +13029,18 @@ void Assembler::prefixq(Address adr, XMMRegister src) {
   }
 }
 
+void Assembler::prefixq_rex2(Address adr, XMMRegister src) {
+  int bits = REXBIT_W;
+  bits |= get_base_prefix_bits(adr.base()->encoding());
+  bits |= get_index_prefix_bits(adr.index());
+  bits |= get_reg_prefix_bits(src->encoding()); 
+  prefix16(REX2 | bits);
+}
+
 int Assembler::prefixq_and_encode(int reg_enc) {
+  if (reg_enc >= 16) {
+    return prefixq_and_encode_rex2(reg_enc);
+  }
   if (reg_enc < 8) {
     prefix(REX_W);
   } else {
@@ -12894,7 +13050,15 @@ int Assembler::prefixq_and_encode(int reg_enc) {
   return reg_enc;
 }
 
+int Assembler::prefixq_and_encode_rex2(int reg_enc) {
+  prefix16(REX2 | REXBIT_W | get_base_prefix_bits(reg_enc));
+  return reg_enc & 0x7;
+}
+
 int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
+  if (dst_enc >= 16 || src_enc >= 16) {
+    return prefixq_and_encode_rex2(dst_enc, src_enc);
+  }
   if (dst_enc < 8) {
     if (src_enc < 8) {
       prefix(REX_W);
@@ -12914,6 +13078,18 @@ int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
   return dst_enc << 3 | src_enc;
 }
 
+int Assembler::prefixq_and_encode_rex2(int dst_enc, int src_enc) {
+  return prefix_and_encode_rex2(dst_enc, src_enc, REX_W);
+}
+
+void Assembler::emit_prefix_and_int8(int prefix, int b1) {
+  if ((prefix & 0xFF00) == 0) {
+    emit_int16(prefix, b1);
+  } else {
+    emit_int24((prefix & 0xFF00) >> 8, prefix & 0x00FF, b1);
+  }
+}
+
 void Assembler::adcq(Register dst, int32_t imm32) {
   (void) prefixq_and_encode(dst->encoding());
   emit_arith(0x81, 0xD0, dst, imm32);
@@ -12921,7 +13097,7 @@ void Assembler::adcq(Register dst, int32_t imm32) {
 
 void Assembler::adcq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x13);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x13);
   emit_operand(dst, src, 0);
 }
 
@@ -12938,7 +13114,7 @@ void Assembler::addq(Address dst, int32_t imm32) {
 
 void Assembler::addq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x01);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x01);
   emit_operand(src, dst, 0);
 }
 
@@ -12949,7 +13125,7 @@ void Assembler::addq(Register dst, int32_t imm32) {
 
 void Assembler::addq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x03);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x03);
   emit_operand(dst, src, 0);
 }
 
@@ -12991,7 +13167,7 @@ void Assembler::andq(Register dst, int32_t imm32) {
 
 void Assembler::andq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x23);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x23);
   emit_operand(dst, src, 0);
 }
 
@@ -13002,7 +13178,7 @@ void Assembler::andq(Register dst, Register src) {
 
 void Assembler::andq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x21);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x21);
   emit_operand(src, dst, 0);
 }
 
@@ -13133,7 +13309,8 @@ void Assembler::cmovq(Condition cc, Register dst, Register src) {
 
 void Assembler::cmovq(Condition cc, Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst), 0x0F, (0x40 | cc));
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  emit_prefix_and_int8(prefix, (0x40 | cc));
   emit_operand(dst, src, 0);
 }
 
@@ -13150,7 +13327,7 @@ void Assembler::cmpq(Register dst, int32_t imm32) {
 
 void Assembler::cmpq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x39);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x39);
   emit_operand(src, dst, 0);
 }
 
@@ -13161,13 +13338,14 @@ void Assembler::cmpq(Register dst, Register src) {
 
 void Assembler::cmpq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x3B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x3B);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::cmpxchgq(Register reg, Address adr) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(adr, reg), 0x0F, (unsigned char)0xB1);
+  int prefix = get_prefixq(adr, reg, true /* M0 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xB1);
   emit_operand(reg, adr, 0);
 }
 
@@ -13245,25 +13423,29 @@ void Assembler::decq(Register dst) {
 void Assembler::decq(Address dst) {
   // Don't use it directly. Use MacroAssembler::decrementq() instead.
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xFF);
   emit_operand(rcx, dst, 0);
 }
 
+// can't use REX2
 void Assembler::fxrstor(Address src) {
   emit_int24(get_prefixq(src), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(1), src, 0);
 }
 
+// can't use REX2
 void Assembler::xrstor(Address src) {
   emit_int24(get_prefixq(src), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(5), src, 0);
 }
 
+// can't use REX2
 void Assembler::fxsave(Address dst) {
   emit_int24(get_prefixq(dst), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(0), dst, 0);
 }
 
+// cant use REX2
 void Assembler::xsave(Address dst) {
   emit_int24(get_prefixq(dst), 0x0F, (unsigned char)0xAE);
   emit_operand(as_Register(4), dst, 0);
@@ -13315,7 +13497,8 @@ void Assembler::imulq(Register dst, Register src, int value) {
 
 void Assembler::imulq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst), 0x0F, (unsigned char)0xAF);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xAF);
   emit_operand(dst, src, 0);
 }
 
@@ -13336,7 +13519,7 @@ void Assembler::incq(Register dst) {
 void Assembler::incq(Address dst) {
   // Don't use it directly. Use MacroAssembler::incrementq() instead.
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xFF);
   emit_operand(rax, dst, 0);
 }
 
@@ -13346,7 +13529,7 @@ void Assembler::lea(Register dst, Address src) {
 
 void Assembler::leaq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x8D);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x8D);
   emit_operand(dst, src, 0);
 }
 
@@ -13443,19 +13626,19 @@ void Assembler::movq(Register dst, Register src) {
 
 void Assembler::movq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x8B);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x8B);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::movq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), (unsigned char)0x89);
+  emit_prefix_and_int8(get_prefixq(dst, src), (unsigned char)0x89);
   emit_operand(src, dst, 0);
 }
 
 void Assembler::movq(Address dst, int32_t imm32) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xC7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC7);
   emit_operand(as_Register(0), dst, 4);
   emit_int32(imm32);
 }
@@ -13468,9 +13651,8 @@ void Assembler::movq(Register dst, int32_t imm32) {
 
 void Assembler::movsbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xBE);
+  int prefix = get_prefixq(src, dst, true /* page1 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xBE);
   emit_operand(dst, src, 0);
 }
 
@@ -13482,14 +13664,14 @@ void Assembler::movsbq(Register dst, Register src) {
 void Assembler::movslq(Address dst, int32_t imm32) {
   assert(is_simm32(imm32), "lost bits");
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xC7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC7);
   emit_operand(rax, dst, 4);
   emit_int32(imm32);
 }
 
 void Assembler::movslq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x63);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x63);
   emit_operand(dst, src, 0);
 }
 
@@ -13500,9 +13682,8 @@ void Assembler::movslq(Register dst, Register src) {
 
 void Assembler::movswq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xBF);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xBF);
   emit_operand(dst, src, 0);
 }
 
@@ -13513,9 +13694,8 @@ void Assembler::movswq(Register dst, Register src) {
 
 void Assembler::movzbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xB6);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xB6);
   emit_operand(dst, src, 0);
 }
 
@@ -13526,9 +13706,8 @@ void Assembler::movzbq(Register dst, Register src) {
 
 void Assembler::movzwq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(src, dst),
-             0x0F,
-             (unsigned char)0xB7);
+  int prefix = get_prefixq(src, dst, true /* M0 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xB7);
   emit_operand(dst, src, 0);
 }
 
@@ -13539,7 +13718,7 @@ void Assembler::movzwq(Register dst, Register src) {
 
 void Assembler::mulq(Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(src), (unsigned char)0xF7);
   emit_operand(rsp, src, 0);
 }
 
@@ -13562,7 +13741,7 @@ void Assembler::negq(Register dst) {
 
 void Assembler::negq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xF7);
   emit_operand(as_Register(3), dst, 0);
 }
 
@@ -13574,9 +13753,8 @@ void Assembler::notq(Register dst) {
 void Assembler::btsq(Address dst, int imm8) {
   assert(isByte(imm8), "not a byte");
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst),
-             0x0F,
-             (unsigned char)0xBA);
+  int prefix = get_prefixq(dst, true /* page1 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xBA);
   emit_operand(rbp /* 5 */, dst, 1);
   emit_int8(imm8);
 }
@@ -13584,9 +13762,8 @@ void Assembler::btsq(Address dst, int imm8) {
 void Assembler::btrq(Address dst, int imm8) {
   assert(isByte(imm8), "not a byte");
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst),
-             0x0F,
-             (unsigned char)0xBA);
+  int prefix = get_prefixq(dst, true /* page1 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xBA);
   emit_operand(rsi /* 6 */, dst, 1);
   emit_int8(imm8);
 }
@@ -13599,7 +13776,7 @@ void Assembler::orq(Address dst, int32_t imm32) {
 
 void Assembler::orq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), (unsigned char)0x09);
+  emit_prefix_and_int8(get_prefixq(dst, src), (unsigned char)0x09);
   emit_operand(src, dst, 0);
 }
 
@@ -13615,7 +13792,7 @@ void Assembler::orq_imm32(Register dst, int32_t imm32) {
 
 void Assembler::orq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x0B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x0B);
   emit_operand(dst, src, 0);
 }
 
@@ -13643,7 +13820,7 @@ void Assembler::popcntq(Register dst, Register src) {
 
 void Assembler::popq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0x8F);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0x8F);
   emit_operand(rax, dst, 0);
 }
 
@@ -13788,7 +13965,7 @@ void Assembler::vzeroall() {
 
 void Assembler::pushq(Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src), (unsigned char)0xFF);
+  emit_prefix_and_int8(get_prefixq(src), (unsigned char)0xFF);
   emit_operand(rsi, src, 0);
 }
 
@@ -13851,11 +14028,11 @@ void Assembler::salq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(4), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(4), dst, 1);
     emit_int8(imm8);
   }
@@ -13863,7 +14040,7 @@ void Assembler::salq(Address dst, int imm8) {
 
 void Assembler::salq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(4), dst, 0);
 }
 
@@ -13886,11 +14063,11 @@ void Assembler::sarq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(7), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(7), dst, 1);
     emit_int8(imm8);
   }
@@ -13898,7 +14075,7 @@ void Assembler::sarq(Address dst, int imm8) {
 
 void Assembler::sarq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(7), dst, 0);
 }
 
@@ -13931,7 +14108,7 @@ void Assembler::sbbq(Register dst, int32_t imm32) {
 
 void Assembler::sbbq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x1B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x1B);
   emit_operand(dst, src, 0);
 }
 
@@ -13973,7 +14150,7 @@ void Assembler::shrq(Register dst) {
 
 void Assembler::shrq(Address dst) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xD3);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD3);
   emit_operand(as_Register(5), dst, 0);
 }
 
@@ -13981,11 +14158,11 @@ void Assembler::shrq(Address dst, int imm8) {
   InstructionMark im(this);
   assert(isShiftCount(imm8 >> 1), "illegal shift count");
   if (imm8 == 1) {
-    emit_int16(get_prefixq(dst), (unsigned char)0xD1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xD1);
     emit_operand(as_Register(5), dst, 0);
   }
   else {
-    emit_int16(get_prefixq(dst), (unsigned char)0xC1);
+    emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xC1);
     emit_operand(as_Register(5), dst, 1);
     emit_int8(imm8);
   }
@@ -13999,7 +14176,7 @@ void Assembler::subq(Address dst, int32_t imm32) {
 
 void Assembler::subq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x29);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x29);
   emit_operand(src, dst, 0);
 }
 
@@ -14016,7 +14193,7 @@ void Assembler::subq_imm32(Register dst, int32_t imm32) {
 
 void Assembler::subq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x2B);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x2B);
   emit_operand(dst, src, 0);
 }
 
@@ -14027,7 +14204,7 @@ void Assembler::subq(Register dst, Register src) {
 
 void Assembler::testq(Address dst, int32_t imm32) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst), (unsigned char)0xF7);
+  emit_prefix_and_int8(get_prefixq(dst), (unsigned char)0xF7);
   emit_operand(as_Register(0), dst, 4);
   emit_int32(imm32);
 }
@@ -14055,19 +14232,20 @@ void Assembler::testq(Register dst, Register src) {
 
 void Assembler::testq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x85);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x85);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::xaddq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int24(get_prefixq(dst, src), 0x0F, (unsigned char)0xC1);
+  int prefix = get_prefixq(dst, src, true /* page1 */);
+  emit_prefix_and_int8(prefix, (unsigned char)0xC1);
   emit_operand(src, dst, 0);
 }
 
 void Assembler::xchgq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), (unsigned char)0x87);
+  emit_prefix_and_int8(get_prefixq(src, dst), (unsigned char)0x87);
   emit_operand(dst, src, 0);
 }
 
@@ -14083,7 +14261,7 @@ void Assembler::xorq(Register dst, Register src) {
 
 void Assembler::xorq(Register dst, Address src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(src, dst), 0x33);
+  emit_prefix_and_int8(get_prefixq(src, dst), 0x33);
   emit_operand(dst, src, 0);
 }
 
@@ -14100,7 +14278,7 @@ void Assembler::xorq(Address dst, int32_t imm32) {
 
 void Assembler::xorq(Address dst, Register src) {
   InstructionMark im(this);
-  emit_int16(get_prefixq(dst, src), 0x31);
+  emit_prefix_and_int8(get_prefixq(dst, src), 0x31);
   emit_operand(src, dst, 0);
 }
 

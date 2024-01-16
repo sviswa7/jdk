@@ -311,12 +311,24 @@ class Address {
     return _base->is_valid() && _base->encoding() >= 8;
   }
 
+  bool base_needs_rex2() const {
+    return _base->is_valid() && _base->encoding() >= 16;
+  }
+
   bool index_needs_rex() const {
     return _index->is_valid() &&_index->encoding() >= 8;
   }
 
+  bool index_needs_rex2() const {
+    return _index->is_valid() &&_index->encoding() >= 16;
+  }
+
   bool xmmindex_needs_rex() const {
     return _xmmindex->is_valid() && ((_xmmindex->encoding() & 8) == 8);
+  }
+
+  bool xmmindex_needs_rex2() const {
+    return _xmmindex->is_valid() && _xmmindex->encoding() >= 16;
   }
 
   relocInfo::relocType reloc() const { return _rspec.type(); }
@@ -508,10 +520,23 @@ class Assembler : public AbstractAssembler  {
     REX_WRX    = 0x4E,
     REX_WRXB   = 0x4F,
 
+    REX2       = 0xd500,
+
     VEX_3bytes = 0xC4,
     VEX_2bytes = 0xC5,
     EVEX_4bytes = 0x62,
     Prefix_EMPTY = 0x0
+  };
+
+  enum PrefixBits {
+    REXBIT_B  = 0x01,
+    REXBIT_X  = 0x02,
+    REXBIT_R  = 0x04,
+    REXBIT_W  = 0x08,
+    REX2BIT_B4 = 0x10,
+    REX2BIT_X4 = 0x20,
+    REX2BIT_R4 = 0x40,
+    REX2BIT_M0 = 0x80
   };
 
   enum VexPrefix {
@@ -529,6 +554,13 @@ class Assembler : public AbstractAssembler  {
     EVEX_Z  = 0x80
   };
 
+  enum ExtEvexPrefix {
+    EEVEX_R = 0x10,
+    EEVEX_B = 0x08,
+    EEVEX_X = 0x04,
+    EEVEX_V = 0x08
+  };
+  
   enum EvexRoundPrefix {
     EVEX_RNE = 0x0,
     EVEX_RD  = 0x1,
@@ -686,33 +718,52 @@ private:
   InstructionAttr *_attributes;
   void set_attributes(InstructionAttr* attributes);
 
+  int get_base_prefix_bits(int enc);
+  int get_index_prefix_bits(int enc);
+  int get_index_prefix_bits(Register index);
+  int get_reg_prefix_bits(int enc);
+
   // 64bit prefixes
   void prefix(Register reg);
   void prefix(Register dst, Register src, Prefix p);
+  void prefix_rex2(Register dst, Register src);
   void prefix(Register dst, Address adr, Prefix p);
+  void prefix_rex2(Register dst, Address adr);
 
   void prefix(Address adr);
+  void prefix_rex2(Address adr);
   void prefix(Address adr, Register reg,  bool byteinst = false);
+  void prefix_rex2(Address adr, Register reg,  bool byteinst = false);
   void prefix(Address adr, XMMRegister reg);
+  void prefix_rex2(Address adr, XMMRegister reg);
 
   int prefix_and_encode(int reg_enc, bool byteinst = false);
+  int prefix_and_encode_rex2(int reg_enc);
   int prefix_and_encode(int dst_enc, int src_enc) {
     return prefix_and_encode(dst_enc, false, src_enc, false);
   }
   int prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
 
+  int prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits = 0);
   // Some prefixq variants always emit exactly one prefix byte, so besides a
   // prefix-emitting method we provide a method to get the prefix byte to emit,
   // which can then be folded into a byte stream.
-  int8_t get_prefixq(Address adr);
-  int8_t get_prefixq(Address adr, Register reg);
+  int get_prefixq(Address adr, bool isPage1 = false);
+  int get_prefixq_rex2(Address adr, bool isPage1 = false);
+  int get_prefixq(Address adr, Register reg, bool isPage1 = false);
+  int get_prefixq_rex2(Address adr, Register reg, bool isPage1 = false);
 
   void prefixq(Address adr);
   void prefixq(Address adr, Register reg);
   void prefixq(Address adr, XMMRegister reg);
+  void prefixq_rex2(Address adr, XMMRegister src);
+
+  bool prefix_is_rex2(int prefix);
 
   int prefixq_and_encode(int reg_enc);
+  int prefixq_and_encode_rex2(int reg_enc);
   int prefixq_and_encode(int dst_enc, int src_enc);
+  int prefixq_and_encode_rex2(int dst_enc, int src_enc);
 
   void rex_prefix(Address adr, XMMRegister xreg,
                   VexSimdPrefix pre, VexOpcode opc, bool rex_w);
@@ -723,6 +774,10 @@ private:
 
   void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
                    int nds_enc, VexSimdPrefix pre, VexOpcode opc);
+
+  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r,
+                       bool eevex_r, bool eevex_b, bool eevex_x,
+                       int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
   void vex_prefix(Address adr, int nds_enc, int xreg_enc,
                   VexSimdPrefix pre, VexOpcode opc,
@@ -821,6 +876,8 @@ private:
   void emit_data64(jlong data, relocInfo::relocType rtype, int format = 0);
   void emit_data64(jlong data, RelocationHolder const& rspec, int format = 0);
 
+  void emit_prefix_and_int8(int prefix, int b1);
+
   bool always_reachable(AddressLiteral adr) NOT_LP64( { return true; } );
   bool        reachable(AddressLiteral adr) NOT_LP64( { return true; } );
 
@@ -906,6 +963,8 @@ private:
 
   // Instruction prefixes
   void prefix(Prefix p);
+
+  void prefix16(int p);
 
   public:
 
