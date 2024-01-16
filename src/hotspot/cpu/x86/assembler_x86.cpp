@@ -12869,7 +12869,7 @@ int Assembler::prefix_and_encode(int reg_enc, bool byteinst) {
 
 int Assembler::prefix_and_encode_rex2(int reg_enc) {
   prefix16(REX2 | get_base_prefix_bits(reg_enc));
-  return reg_enc & 0xF;
+  return reg_enc & 0x7;
 }
 
 int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte) {
@@ -13052,7 +13052,7 @@ int Assembler::prefixq_and_encode(int reg_enc) {
 
 int Assembler::prefixq_and_encode_rex2(int reg_enc) {
   prefix16(REX2 | REXBIT_W | get_base_prefix_bits(reg_enc));
-  return reg_enc & 0xF;
+  return reg_enc & 0x7;
 }
 
 int Assembler::prefixq_and_encode(int dst_enc, int src_enc) {
