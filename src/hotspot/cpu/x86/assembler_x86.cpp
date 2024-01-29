@@ -2681,35 +2681,35 @@ void Assembler::vmovddup(XMMRegister dst, Address src, int vector_len) {
 void Assembler::kmovbl(KRegister dst, KRegister src) {
   assert(VM_Version::supports_avx512dq(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode(dst->encoding(), 0, src->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x90, (0xC0 | encode));
 }
 
 void Assembler::kmovbl(KRegister dst, Register src) {
   assert(VM_Version::supports_avx512dq(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), false, 0, false, src->encoding(), true, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x92, (0xC0 | encode));
 }
 
 void Assembler::kmovbl(Register dst, KRegister src) {
   assert(VM_Version::supports_avx512dq(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), false, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x93, (0xC0 | encode));
 }
 
 void Assembler::kmovwl(KRegister dst, Register src) {
   assert(VM_Version::supports_evex(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), false, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x92, (0xC0 | encode));
 }
 
 void Assembler::kmovwl(Register dst, KRegister src) {
   assert(VM_Version::supports_evex(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), false, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x93, (0xC0 | encode));
 }
 
@@ -2717,7 +2717,7 @@ void Assembler::kmovwl(KRegister dst, Address src) {
   assert(VM_Version::supports_evex(), "");
   InstructionMark im(this);
   InstructionAttr attributes(AVX_128bit, /* vex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  vex_prefix_with_gprs(src, 0, false, dst->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  vex_prefix_with_gprs(src, 0, false, dst->encoding(), false, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int8((unsigned char)0x90);
   emit_operand(dst, src, 0);
 }
@@ -2726,7 +2726,7 @@ void Assembler::kmovwl(Address dst, KRegister src) {
   assert(VM_Version::supports_evex(), "");
   InstructionMark im(this);
   InstructionAttr attributes(AVX_128bit, /* vex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  vex_prefix_with_gprs(dst, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  vex_prefix_with_gprs(dst, 0, false, src->encoding(), false, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int8((unsigned char)0x91);
   emit_operand(src, dst, 0);
 }
@@ -2734,28 +2734,28 @@ void Assembler::kmovwl(Address dst, KRegister src) {
 void Assembler::kmovwl(KRegister dst, KRegister src) {
   assert(VM_Version::supports_evex(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode(dst->encoding(), 0, src->encoding(), VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x90, (0xC0 | encode));
 }
 
 void Assembler::kmovdl(KRegister dst, Register src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), false, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x92, (0xC0 | encode));
 }
 
 void Assembler::kmovdl(Register dst, KRegister src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), false, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x93, (0xC0 | encode));
 }
 
 void Assembler::kmovql(KRegister dst, KRegister src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ true, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode(dst->encoding(), 0, src->encoding(), VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x90, (0xC0 | encode));
 }
 
@@ -2763,7 +2763,7 @@ void Assembler::kmovql(KRegister dst, Address src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionMark im(this);
   InstructionAttr attributes(AVX_128bit, /* vex_w */ true, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  vex_prefix_with_gprs(src, 0, false, dst->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  vex_prefix_with_gprs(src, 0, false, dst->encoding(), false, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int8((unsigned char)0x90);
   emit_operand(dst, src, 0);
 }
@@ -2772,7 +2772,7 @@ void Assembler::kmovql(Address dst, KRegister src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionMark im(this);
   InstructionAttr attributes(AVX_128bit, /* vex_w */ true, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  vex_prefix_with_gprs(dst, 0, false, src->encoding(), true, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
+  vex_prefix_with_gprs(dst, 0, false, src->encoding(), false, VEX_SIMD_NONE, VEX_OPCODE_0F, &attributes);
   emit_int8((unsigned char)0x91);
   emit_operand(src, dst, 0);
 }
@@ -2780,14 +2780,14 @@ void Assembler::kmovql(Address dst, KRegister src) {
 void Assembler::kmovql(KRegister dst, Register src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ true, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), false, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x92, (0xC0 | encode));
 }
 
 void Assembler::kmovql(Register dst, KRegister src) {
   assert(VM_Version::supports_avx512bw(), "");
   InstructionAttr attributes(AVX_128bit, /* rex_w */ true, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
-  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), true, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
+  int encode = vex_prefix_and_encode_with_gprs(dst->encoding(), true, 0, false, src->encoding(), false, VEX_SIMD_F2, VEX_OPCODE_0F, &attributes);
   emit_int16((unsigned char)0x93, (0xC0 | encode));
 }
 
@@ -11813,10 +11813,10 @@ int Assembler::vex_prefix_and_encode_with_gprs(int dst_enc, bool dst_is_gpr, int
   if ((UseAVX > 2 && !attributes->is_legacy_mode()) || is_extended)
   {
     bool evex_r = (dst_enc >= 16) && src_is_gpr;
-    bool evex_v = (nds_enc >= 16) && nds_is_gpr;
+    bool evex_v = (nds_enc >= 16);
     bool evex_b = (src_enc & 16) == 16 && src_is_gpr;
     // can use vex_x as bank extender on rm encoding
-    vex_x = (src_enc >= 16); //&& !src_is_gpr
+    vex_x = (src_enc >= 16);
     bool eevex_x = false;
     attributes->set_is_evex_instruction();
     ext_evex_prefix(vex_r, vex_b, vex_x, evex_r, evex_b, evex_v, eevex_x, nds_enc, pre, opc);
