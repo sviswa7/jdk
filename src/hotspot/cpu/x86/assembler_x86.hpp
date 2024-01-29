@@ -550,6 +550,7 @@ class Assembler : public AbstractAssembler  {
     EVEX_F  = 0x04,
     EVEX_V  = 0x08,
     EVEX_Rb = 0x10,
+    EVEX_B  = 0x20,
     EVEX_X  = 0x40,
     EVEX_Z  = 0x80
   };
@@ -775,17 +776,22 @@ private:
   void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
                    int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
-  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r,
-                       bool eevex_r, bool eevex_b, bool eevex_x,
-                       int nds_enc, VexSimdPrefix pre, VexOpcode opc);
+  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r, bool evex_b,
+                       bool eevex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
   void vex_prefix(Address adr, int nds_enc, int xreg_enc,
                   VexSimdPrefix pre, VexOpcode opc,
                   InstructionAttr *attributes);
 
+  void vex_prefix_with_gprs(Address adr, int nds_enc, bool nds_is_gpr, int xreg_enc, bool xreg_is_gpr,
+                            VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes);
+
   int  vex_prefix_and_encode(int dst_enc, int nds_enc, int src_enc,
                              VexSimdPrefix pre, VexOpcode opc,
                              InstructionAttr *attributes);
+
+  int  vex_prefix_and_encode_with_gprs(int dst_enc, bool dst_is_gpr, int nds_enc, bool nds_is_gpr, int src_enc,
+                                       bool src_is_gpr, VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes);
 
   void simd_prefix(XMMRegister xreg, XMMRegister nds, Address adr, VexSimdPrefix pre,
                    VexOpcode opc, InstructionAttr *attributes);
