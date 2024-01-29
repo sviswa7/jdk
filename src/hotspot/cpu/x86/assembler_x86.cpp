@@ -11666,9 +11666,8 @@ void Assembler::vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix
 }
 
 void Assembler::vex_prefix_with_gprs(Address adr, int nds_enc, bool nds_is_gpr, int xreg_enc, bool xreg_is_gpr, VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes) {
-  bool is_extended = (adr.base_needs_rex2() && !adr.isxmmindex())|| (adr.index_needs_rex2() && !adr.isxmmindex())
+  bool is_extended = (adr.base_needs_rex2() && !adr.isxmmindex()) || (adr.index_needs_rex2() && !adr.isxmmindex())
        || (nds_enc >= 16 && nds_is_gpr) || (xreg_enc >= 16 && xreg_is_gpr);
-  // bool is_extended = (nds_enc >= 16 && nds_is_gpr) || (xreg_enc >= 16 && xreg_is_gpr);
   bool vex_r = (xreg_enc & 8) == 8;
   bool vex_b = adr.base_needs_rex() && ((adr.base()->encoding() & 8) == 8);
   bool vex_x;
@@ -11713,7 +11712,7 @@ void Assembler::vex_prefix_with_gprs(Address adr, int nds_enc, bool nds_is_gpr, 
     bool eevex_x = adr.index_needs_rex2() && !adr.isxmmindex() && adr.index()->encoding() >= 24;
     bool evex_b = adr.base_needs_rex2() && !adr.isxmmindex() && (adr.base()->encoding() & 16 == 16);
     attributes->set_is_evex_instruction();
-    attributes->set_rex_vex_w(true);  // may not always be correct
+    attributes->set_rex_vex_w(true);
     ext_evex_prefix(vex_r, vex_b, vex_x, evex_r, evex_b, evex_v, eevex_x, nds_enc, pre, opc);
   } else {
     if (UseAVX > 2 && attributes->is_rex_vex_w_reverted()) {
