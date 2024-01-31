@@ -39,7 +39,8 @@ enum {
 
 // registers
 enum {
-  pd_nof_cpu_regs_frame_map = Register::number_of_registers,       // number of registers used during code emission
+  //pd_nof_cpu_regs_frame_map = Register::number_of_registers,     // FIXME, enable with EGPR support for C1.
+  pd_nof_cpu_regs_frame_map = LP64_ONLY(16) NOT_LP64(8),           // number of registers used during code emission
   pd_nof_fpu_regs_frame_map = FloatRegister::number_of_registers,  // number of registers used during code emission
   pd_nof_xmm_regs_frame_map = XMMRegister::number_of_registers,    // number of registers used during code emission
 
