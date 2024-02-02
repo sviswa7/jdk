@@ -773,31 +773,21 @@ private:
 
   void vex_prefix(bool vex_r, bool vex_b, bool vex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
-  void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
-                   int nds_enc, VexSimdPrefix pre, VexOpcode opc);
-
-  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r, bool evex_b,
+  void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r, bool evex_b,
                        bool eevex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
-  void vex_prefix(Address adr, int nds_enc, int xreg_enc,
-                  VexSimdPrefix pre, VexOpcode opc,
-                  InstructionAttr *attributes);
-
-  void vex_prefix_with_gprs(Address adr, int nds_enc, bool nds_is_gpr, int xreg_enc, bool xreg_is_gpr,
-                            VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes);
+  void vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix pre, VexOpcode opc,
+                  InstructionAttr *attributes, bool has_gpr = false);
 
   int  vex_prefix_and_encode(int dst_enc, int nds_enc, int src_enc,
                              VexSimdPrefix pre, VexOpcode opc,
-                             InstructionAttr *attributes);
-
-  int  vex_prefix_and_encode_with_gprs(int dst_enc, bool dst_is_gpr, int nds_enc, bool nds_is_gpr, int src_enc,
-                                       bool src_is_gpr, VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes);
+                             InstructionAttr *attributes, bool has_gpr = false, bool src_is_gpr = false);
 
   void simd_prefix(XMMRegister xreg, XMMRegister nds, Address adr, VexSimdPrefix pre,
                    VexOpcode opc, InstructionAttr *attributes);
 
   int simd_prefix_and_encode(XMMRegister dst, XMMRegister nds, XMMRegister src, VexSimdPrefix pre,
-                             VexOpcode opc, InstructionAttr *attributes);
+                             VexOpcode opc, InstructionAttr *attributes, bool has_gpr = false, bool src_is_gpr = false);
 
   // Helper functions for groups of instructions
   void emit_arith_b(int op1, int op2, Register dst, int imm8);
