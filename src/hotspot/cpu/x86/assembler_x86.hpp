@@ -308,7 +308,7 @@ class Address {
 
  private:
   bool base_needs_rex() const {
-    return _base->is_valid() && _base->encoding() >= 8;
+    return _base->is_valid() && ((_base->encoding() & 8) == 8);
   }
 
   bool base_needs_rex2() const {
@@ -316,7 +316,7 @@ class Address {
   }
 
   bool index_needs_rex() const {
-    return _index->is_valid() &&_index->encoding() >= 8;
+    return _index->is_valid() && ((_index->encoding() & 8) == 8);
   }
 
   bool index_needs_rex2() const {
@@ -777,17 +777,17 @@ private:
                        bool eevex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
   void vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix pre, VexOpcode opc,
-                  InstructionAttr *attributes, bool has_gpr = false);
+                  InstructionAttr *attributes);
 
   int  vex_prefix_and_encode(int dst_enc, int nds_enc, int src_enc,
                              VexSimdPrefix pre, VexOpcode opc,
-                             InstructionAttr *attributes, bool has_gpr = false, bool src_is_gpr = false);
+                             InstructionAttr *attributes, bool src_is_gpr = false);
 
   void simd_prefix(XMMRegister xreg, XMMRegister nds, Address adr, VexSimdPrefix pre,
                    VexOpcode opc, InstructionAttr *attributes);
 
   int simd_prefix_and_encode(XMMRegister dst, XMMRegister nds, XMMRegister src, VexSimdPrefix pre,
-                             VexOpcode opc, InstructionAttr *attributes, bool has_gpr = false, bool src_is_gpr = false);
+                             VexOpcode opc, InstructionAttr *attributes, bool src_is_gpr = false);
 
   // Helper functions for groups of instructions
   void emit_arith_b(int op1, int op2, Register dst, int imm8);
