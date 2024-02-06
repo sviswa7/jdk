@@ -525,6 +525,9 @@ bool Assembler::emit_compressed_disp_byte(int &disp) {
     case EVEX_DUP:
       break;
 
+    case EVEX_NOSCALE:
+      break;
+
     default:
       assert(0, "no valid evex tuple_table entry");
       break;
@@ -11554,10 +11557,8 @@ void Assembler::evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, boo
   byte2 |= opc;
 
   // P1: byte 3 as Wvvvv1pp
-  // int byte3 = ((~nds_enc) & 0xf) << 3;
   int byte3 = ((~nds_enc) & 0xf) << 3;
   byte3 = byte3 & 0xfb;
-  // byte3 |= EVEX_F;
   byte3 |= (eevex_x ? 0 : EEVEX_X);
   byte3 |= (vex_w & 1) << 7;
   // confine pre opcode extensions in pp bits to lower two bits
@@ -11587,7 +11588,7 @@ void Assembler::evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, boo
 void Assembler::vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix pre, VexOpcode opc, InstructionAttr *attributes) {
   bool is_extended = adr.base_needs_rex2() || adr.index_needs_rex2() || nds_enc >= 16 || xreg_enc >= 16;
   bool vex_r = (xreg_enc & 8) == 8;
-  bool vex_b = adr.base_needs_rex() && ((adr.base()->encoding() & 8) == 8);
+  bool vex_b = adr.base_needs_rex();
   bool vex_x;
   if (adr.isxmmindex()) {
     vex_x = adr.xmmindex_needs_rex();
