@@ -308,7 +308,7 @@ class Address {
 
  private:
   bool base_needs_rex() const {
-    return _base->is_valid() && _base->encoding() >= 8;
+    return _base->is_valid() && ((_base->encoding() & 8) == 8);
   }
 
   bool base_needs_rex2() const {
@@ -316,7 +316,7 @@ class Address {
   }
 
   bool index_needs_rex() const {
-    return _index->is_valid() &&_index->encoding() >= 8;
+    return _index->is_valid() && ((_index->encoding() & 8) == 8);
   }
 
   bool index_needs_rex2() const {
@@ -550,6 +550,7 @@ class Assembler : public AbstractAssembler  {
     EVEX_F  = 0x04,
     EVEX_V  = 0x08,
     EVEX_Rb = 0x10,
+    EVEX_B  = 0x20,
     EVEX_X  = 0x40,
     EVEX_Z  = 0x80
   };
@@ -604,7 +605,8 @@ class Assembler : public AbstractAssembler  {
     EVEX_OVM  = 20,
     EVEX_M128 = 21,
     EVEX_DUP  = 22,
-    EVEX_ETUP = 23
+    EVEX_NOSCALE = 23,
+    EVEX_ETUP = 24
   };
 
   enum EvexInputSizeInBits {
@@ -772,26 +774,21 @@ private:
 
   void vex_prefix(bool vex_r, bool vex_b, bool vex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
-  void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, bool evex_v,
-                   int nds_enc, VexSimdPrefix pre, VexOpcode opc);
+  void evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r, bool evex_b,
+                       bool eevex_x, int nds_enc, VexSimdPrefix pre, VexOpcode opc);
 
-  void ext_evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_v, bool evex_r,
-                       bool eevex_r, bool eevex_b, bool eevex_x,
-                       int nds_enc, VexSimdPrefix pre, VexOpcode opc);
-
-  void vex_prefix(Address adr, int nds_enc, int xreg_enc,
-                  VexSimdPrefix pre, VexOpcode opc,
+  void vex_prefix(Address adr, int nds_enc, int xreg_enc, VexSimdPrefix pre, VexOpcode opc,
                   InstructionAttr *attributes);
 
   int  vex_prefix_and_encode(int dst_enc, int nds_enc, int src_enc,
                              VexSimdPrefix pre, VexOpcode opc,
-                             InstructionAttr *attributes);
+                             InstructionAttr *attributes, bool src_is_gpr = false);
 
   void simd_prefix(XMMRegister xreg, XMMRegister nds, Address adr, VexSimdPrefix pre,
                    VexOpcode opc, InstructionAttr *attributes);
 
   int simd_prefix_and_encode(XMMRegister dst, XMMRegister nds, XMMRegister src, VexSimdPrefix pre,
-                             VexOpcode opc, InstructionAttr *attributes);
+                             VexOpcode opc, InstructionAttr *attributes, bool src_is_gpr = false);
 
   // Helper functions for groups of instructions
   void emit_arith_b(int op1, int op2, Register dst, int imm8);
