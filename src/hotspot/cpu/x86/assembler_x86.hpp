@@ -605,7 +605,8 @@ class Assembler : public AbstractAssembler  {
     EVEX_OVM  = 20,
     EVEX_M128 = 21,
     EVEX_DUP  = 22,
-    EVEX_ETUP = 23
+    EVEX_NOSCALE = 23,
+    EVEX_ETUP = 24
   };
 
   enum EvexInputSizeInBits {
