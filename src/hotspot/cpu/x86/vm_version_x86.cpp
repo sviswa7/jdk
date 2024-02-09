@@ -113,7 +113,7 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     bool use_evex = FLAG_IS_DEFAULT(UseAVX) || (UseAVX > 2);
 
     Label detect_486, cpu486, detect_586, std_cpuid1, std_cpuid4;
-    Label sef_cpuid, ext_cpuid, ext_cpuid1, ext_cpuid5, ext_cpuid7, ext_cpuid8, done, wrapup;
+    Label sef_cpuid, sefsl1_cpuid, ext_cpuid, ext_cpuid1, ext_cpuid5, ext_cpuid7, ext_cpuid8, done, wrapup, epilogue;
     Label legacy_setup, save_restore_except, legacy_save_restore, start_simd_check;
 
     StubCodeMark mark(this, "VM_Version", "get_cpu_info_stub");
@@ -288,7 +288,7 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     __ movl(Address(rsi, 4), rdx);
 
     //
-    // cpuid(0x7) Structured Extended Features
+    // cpuid(0x7) Structured Extended Features Enumeration Leaf.
     //
     __ bind(sef_cpuid);
     __ movl(rax, 7);
@@ -302,6 +302,19 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     __ movl(Address(rsi, 4), rbx);
     __ movl(Address(rsi, 8), rcx);
     __ movl(Address(rsi, 12), rdx);
+
+    if (UseAPX) {
+      //
+      // cpuid(0x7) Structured Extended Features Enumeration Sub-Leaf 1.
+      //
+      __ bind(sefsl1_cpuid);
+      __ movl(rax, 7);
+      __ movl(rcx, 1);
+      __ cpuid();
+      __ lea(rsi, Address(rbp, in_bytes(VM_Version::sefsl1_cpuid7_offset())));
+      __ movl(Address(rsi, 0), rax);
+      __ movl(Address(rsi, 4), rdx);
+    }
 
     //
     // Extended cpuid(0x80000000)
@@ -579,6 +592,24 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     UseSSE = saved_usesse;
 
     __ bind(wrapup);
+
+    if (UseAPX) {
+      // To enable APX, check CPUID.EAX=7.ECX=1.EDX[21] bit for HW support
+      // and XCRO[19] bit for OS support to save/restore extended GPR state.
+      __ lea(rsi, Address(rbp, in_bytes(VM_Version::sefsl1_cpuid7_offset())));
+      __ movl(rax, 0x100000);
+      __ andl(rax, Address(rsi, 4));
+      __ cmpl(rax, 0x100000);
+      __ jcc(Assembler::notEqual, epilogue);
+      // check _cpuid_info.xem_xcr0_eax.bits.apx_f
+      __ movl(rax, 0x80000);
+      __ andl(rax, Address(rbp, in_bytes(VM_Version::xem_xcr0_offset()))); // xcr0 bits apx_f
+      __ cmpl(rax, 0x80000);
+      __ jcc(Assembler::notEqual, epilogue);
+      // TODO check for EGPR save restore
+    }
+
+    __ bind(epilogue);
     __ popf();
     __ pop(rsi);
     __ pop(rbx);
@@ -2927,6 +2958,10 @@ uint64_t VM_Version::feature_flags() {
     result |= CPU_SSE4_2;
   if (_cpuid_info.std_cpuid1_ecx.bits.popcnt != 0)
     result |= CPU_POPCNT;
+  if (_cpuid_info.sefsl1_cpuid7_edx.bits.apx_f != 0 &&
+      _cpuid_info.xem_xcr0_eax.bits.apx_f != 0) {
+    result |= CPU_APX_F;
+  }
   if (_cpuid_info.std_cpuid1_ecx.bits.avx != 0 &&
       _cpuid_info.std_cpuid1_ecx.bits.osxsave != 0 &&
       _cpuid_info.xem_xcr0_eax.bits.sse != 0 &&

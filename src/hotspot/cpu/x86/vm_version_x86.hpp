@@ -279,6 +279,19 @@ class VM_Version : public Abstract_VM_Version {
     } bits;
   };
 
+  union SefCpuid7SubLeaf1Eax {
+    uint32_t value;
+  };
+
+  union SefCpuid7SubLeaf1Edx {
+    uint32_t value;
+    struct {
+      uint32_t       : 21,
+              apx_f  : 1,
+                     : 10;
+    } bits;
+  };
+
   union ExtCpuid1EEbx {
     uint32_t value;
     struct {
@@ -299,7 +312,9 @@ class VM_Version : public Abstract_VM_Version {
                opmask  : 1,
                zmm512  : 1,
                zmm32   : 1,
-                       : 24;
+                       : 11,
+               apx_f   : 1,
+                       : 12;
     } bits;
   };
 
@@ -390,7 +405,8 @@ protected:
     decl(OSPKE,             "ospke",             55) /* OS enables protection keys */ \
     decl(CET_IBT,           "cet_ibt",           56) /* Control Flow Enforcement - Indirect Branch Tracking */ \
     decl(CET_SS,            "cet_ss",            57) /* Control Flow Enforcement - Shadow Stack */ \
-    decl(AVX512_IFMA,       "avx512_ifma",       58) /* Integer Vector FMA instructions*/
+    decl(AVX512_IFMA,       "avx512_ifma",       58) /* Integer Vector FMA instructions*/  \
+    decl(APX_F,             "apx_f",             59) /* Intel Advanced Performance Extensions*/
 
 #define DECLARE_CPU_FEATURE_FLAG(id, name, bit) CPU_##id = (1ULL << bit),
     CPU_FEATURE_FLAGS(DECLARE_CPU_FEATURE_FLAG)
@@ -447,11 +463,16 @@ protected:
     uint32_t     dcp_cpuid4_ecx; // unused currently
     uint32_t     dcp_cpuid4_edx; // unused currently
 
-    // cpuid function 7 (structured extended features)
+    // cpuid function 7 (structured extended features enumeration leaf)
     SefCpuid7Eax sef_cpuid7_eax;
     SefCpuid7Ebx sef_cpuid7_ebx;
     SefCpuid7Ecx sef_cpuid7_ecx;
     SefCpuid7Edx sef_cpuid7_edx;
+
+    // cpuid function 7 (structured extended features enumeration sub-leaf 1)
+    // eax = 7, ecx = 1
+    SefCpuid7SubLeaf1Eax sefsl1_cpuid7_eax;
+    SefCpuid7SubLeaf1Edx sefsl1_cpuid7_edx;
 
     // cpuid function 0xB (processor topology)
     // ecx = 0
@@ -563,6 +584,7 @@ public:
   static ByteSize std_cpuid1_offset() { return byte_offset_of(CpuidInfo, std_cpuid1_eax); }
   static ByteSize dcp_cpuid4_offset() { return byte_offset_of(CpuidInfo, dcp_cpuid4_eax); }
   static ByteSize sef_cpuid7_offset() { return byte_offset_of(CpuidInfo, sef_cpuid7_eax); }
+  static ByteSize sefsl1_cpuid7_offset() { return byte_offset_of(CpuidInfo, sefsl1_cpuid7_eax); }
   static ByteSize ext_cpuid1_offset() { return byte_offset_of(CpuidInfo, ext_cpuid1_eax); }
   static ByteSize ext_cpuid5_offset() { return byte_offset_of(CpuidInfo, ext_cpuid5_eax); }
   static ByteSize ext_cpuid7_offset() { return byte_offset_of(CpuidInfo, ext_cpuid7_eax); }
@@ -587,6 +609,7 @@ public:
   static void clean_cpuFeatures()   { _features = 0; }
   static void set_avx_cpuFeatures() { _features = (CPU_SSE | CPU_SSE2 | CPU_AVX | CPU_VZEROUPPER ); }
   static void set_evex_cpuFeatures() { _features = (CPU_AVX512F | CPU_SSE | CPU_SSE2 | CPU_VZEROUPPER ); }
+  static void set_apx_cpuFeatures() { _features |= CPU_APX_F; }
 
   // Initialization
   static void initialize();
@@ -683,6 +706,7 @@ public:
   static bool supports_avx512novl()   { return (supports_evex() && !supports_avx512vl()); }
   static bool supports_avx512nobw()   { return (supports_evex() && !supports_avx512bw()); }
   static bool supports_avx256only()   { return (supports_avx2() && !supports_evex()); }
+  static bool supports_apx_f()        { return (_features & CPU_APX_F) != 0; }
   static bool supports_avxonly()      { return ((supports_avx2() || supports_avx()) && !supports_evex()); }
   static bool supports_sha()          { return (_features & CPU_SHA) != 0; }
   static bool supports_fma()          { return (_features & CPU_FMA) != 0 && supports_avx(); }
