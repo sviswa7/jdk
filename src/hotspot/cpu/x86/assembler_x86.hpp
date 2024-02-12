@@ -732,19 +732,19 @@ private:
   void prefix(Register dst, Address adr, Prefix p);
   void prefix_rex2(Register dst, Address adr);
 
-  void prefix(Address adr);
-  void prefix_rex2(Address adr);
-  void prefix(Address adr, Register reg,  bool byteinst = false);
-  void prefix_rex2(Address adr, Register reg,  bool byteinst = false);
+  void prefix(Address adr, bool is_map1 = false);
+  void prefix_rex2(Address adr, bool is_map1 = false);
+  void prefix(Address adr, Register reg,  bool byteinst = false, bool is_map1 = false);
+  void prefix_rex2(Address adr, Register reg,  bool byteinst = false, bool is_map1 = false);
   void prefix(Address adr, XMMRegister reg);
   void prefix_rex2(Address adr, XMMRegister reg);
 
-  int prefix_and_encode(int reg_enc, bool byteinst = false);
-  int prefix_and_encode_rex2(int reg_enc);
-  int prefix_and_encode(int dst_enc, int src_enc) {
-    return prefix_and_encode(dst_enc, false, src_enc, false);
+  int prefix_and_encode(int reg_enc, bool byteinst = false, bool is_map1 = false);
+  int prefix_and_encode_rex2(int reg_enc, bool is_map1 = false);
+  int prefix_and_encode(int dst_enc, int src_enc, bool is_map1 = false) {
+    return prefix_and_encode(dst_enc, false, src_enc, false, is_map1);
   }
-  int prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte);
+  int prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, bool src_is_byte, bool is_map1 = false);
 
   int prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits = 0);
   // Some prefixq variants always emit exactly one prefix byte, so besides a
@@ -756,16 +756,18 @@ private:
   int get_prefixq_rex2(Address adr, Register reg, bool isPage1 = false);
 
   void prefixq(Address adr);
-  void prefixq(Address adr, Register reg);
+  void prefixq(Address adr, Register reg, bool is_map1 = false);
   void prefixq(Address adr, XMMRegister reg);
   void prefixq_rex2(Address adr, XMMRegister src);
 
   bool prefix_is_rex2(int prefix);
 
-  int prefixq_and_encode(int reg_enc);
-  int prefixq_and_encode_rex2(int reg_enc);
-  int prefixq_and_encode(int dst_enc, int src_enc);
-  int prefixq_and_encode_rex2(int dst_enc, int src_enc);
+  int prefixq_and_encode(int reg_enc, bool is_map1 = false);
+  int prefixq_and_encode_rex2(int reg_enc, bool is_map1 = false);
+  int prefixq_and_encode(int dst_enc, int src_enc, bool is_map1 = false);
+  int prefixq_and_encode_rex2(int dst_enc, int src_enc, bool is_map1 = false);
+
+  bool needs_rex2(Register reg1, Register reg2 = noreg, Register reg3 = noreg);
 
   void rex_prefix(Address adr, XMMRegister xreg,
                   VexSimdPrefix pre, VexOpcode opc, bool rex_w);
