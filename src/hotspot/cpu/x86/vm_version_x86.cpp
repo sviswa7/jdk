@@ -303,18 +303,16 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     __ movl(Address(rsi, 8), rcx);
     __ movl(Address(rsi, 12), rdx);
 
-    if (UseAPX) {
-      //
-      // cpuid(0x7) Structured Extended Features Enumeration Sub-Leaf 1.
-      //
-      __ bind(sefsl1_cpuid);
-      __ movl(rax, 7);
-      __ movl(rcx, 1);
-      __ cpuid();
-      __ lea(rsi, Address(rbp, in_bytes(VM_Version::sefsl1_cpuid7_offset())));
-      __ movl(Address(rsi, 0), rax);
-      __ movl(Address(rsi, 4), rdx);
-    }
+    //
+    // cpuid(0x7) Structured Extended Features Enumeration Sub-Leaf 1.
+    //
+    __ bind(sefsl1_cpuid);
+    __ movl(rax, 7);
+    __ movl(rcx, 1);
+    __ cpuid();
+    __ lea(rsi, Address(rbp, in_bytes(VM_Version::sefsl1_cpuid7_offset())));
+    __ movl(Address(rsi, 0), rax);
+    __ movl(Address(rsi, 4), rdx);
 
     //
     // Extended cpuid(0x80000000)
@@ -592,24 +590,6 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     UseSSE = saved_usesse;
 
     __ bind(wrapup);
-
-    if (UseAPX) {
-      // To enable APX, check CPUID.EAX=7.ECX=1.EDX[21] bit for HW support
-      // and XCRO[19] bit for OS support to save/restore extended GPR state.
-      __ lea(rsi, Address(rbp, in_bytes(VM_Version::sefsl1_cpuid7_offset())));
-      __ movl(rax, 0x100000);
-      __ andl(rax, Address(rsi, 4));
-      __ cmpl(rax, 0x100000);
-      __ jcc(Assembler::notEqual, epilogue);
-      // check _cpuid_info.xem_xcr0_eax.bits.apx_f
-      __ movl(rax, 0x80000);
-      __ andl(rax, Address(rbp, in_bytes(VM_Version::xem_xcr0_offset()))); // xcr0 bits apx_f
-      __ cmpl(rax, 0x80000);
-      __ jcc(Assembler::notEqual, epilogue);
-      // TODO check for EGPR save restore
-    }
-
-    __ bind(epilogue);
     __ popf();
     __ pop(rsi);
     __ pop(rbx);
@@ -970,6 +950,13 @@ void VM_Version::get_processor_features() {
       warning("UseAVX=%d is not supported on this CPU, setting it to UseAVX=%d", UseAVX, use_avx_limit);
     }
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
+  }
+
+  if (FLAG_IS_DEFAULT(UseAPX) && (UseAVX > 2)) {
+    FLAG_SET_DEFAULT(UseAPX, supports_apx_f() ? 1 : 0);
+  } else if (UseAPX > 0) {
+    warning("UseAPX=%d is not supported on this CPU, setting it to 0", UseAPX);
+    FLAG_SET_DEFAULT(UseAPX, 0);
   }
 
   if (UseAVX < 3) {

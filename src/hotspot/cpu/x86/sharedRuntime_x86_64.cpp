@@ -300,7 +300,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
   map->set_callee_saved(STACK_OFFSET( r14_off ), r14->as_VMReg());
   map->set_callee_saved(STACK_OFFSET( r15_off ), r15->as_VMReg());
 
-  if (VM_Version::supports_apx_f()) {
+  if (UseAPX > 0) {
     map->set_callee_saved(STACK_OFFSET( r16_off ), r16->as_VMReg());
     map->set_callee_saved(STACK_OFFSET( r17_off ), r17->as_VMReg());
     map->set_callee_saved(STACK_OFFSET( r18_off ), r18->as_VMReg());
@@ -378,7 +378,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
     map->set_callee_saved(STACK_OFFSET( r13H_off ), r13->as_VMReg()->next());
     map->set_callee_saved(STACK_OFFSET( r14H_off ), r14->as_VMReg()->next());
     map->set_callee_saved(STACK_OFFSET( r15H_off ), r15->as_VMReg()->next());
-    if (VM_Version::supports_apx_f()) {
+    if (UseAPX > 0) {
       map->set_callee_saved(STACK_OFFSET( r16H_off ), r16->as_VMReg()->next());
       map->set_callee_saved(STACK_OFFSET( r17H_off ), r17->as_VMReg()->next());
       map->set_callee_saved(STACK_OFFSET( r18H_off ), r18->as_VMReg()->next());

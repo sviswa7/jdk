@@ -498,7 +498,7 @@ void reg_mask_init() {
   _PTR_REG_mask.Remove(OptoReg::as_OptoReg(rsp->as_VMReg()->next()));
   _PTR_REG_mask.Remove(OptoReg::as_OptoReg(r15->as_VMReg()));
   _PTR_REG_mask.Remove(OptoReg::as_OptoReg(r15->as_VMReg()->next()));
-  if (!VM_Version::supports_apx_f()) {
+  if (UseAPX == 0) {
     for (uint i = 0; i < sizeof(egprs)/sizeof(Register); i++) {
       _PTR_REG_mask.Remove(OptoReg::as_OptoReg(egprs[i]->as_VMReg()));
       _PTR_REG_mask.Remove(OptoReg::as_OptoReg(egprs[i]->as_VMReg()->next()));
@@ -542,7 +542,7 @@ void reg_mask_init() {
   _LONG_NO_RBP_R13_REG_mask.Remove(OptoReg::as_OptoReg(r13->as_VMReg()->next()));
 
   _INT_REG_mask = _ALL_INT_REG_mask;
-  if (!VM_Version::supports_apx_f()) {
+  if (UseAPX == 0) {
     for (uint i = 0; i < sizeof(egprs)/sizeof(Register); i++) {
       _INT_REG_mask.Remove(OptoReg::as_OptoReg(egprs[i]->as_VMReg()));
     }
