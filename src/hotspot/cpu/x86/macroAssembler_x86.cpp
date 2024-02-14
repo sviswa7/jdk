@@ -4043,10 +4043,12 @@ RegSet MacroAssembler::call_clobbered_gp_registers() {
 #else
   regs += RegSet::of(rax, rcx, rdx);
 #endif
+#ifdef _LP64
   int num_gp_registers = Register::available_gp_registers();
   if (num_gp_registers > 16) {
     regs += RegSet::of(r16, as_Register(num_gp_registers - 1));
   }
+#endif
   return regs;
 }
 
