@@ -46,7 +46,7 @@ public:
 
   enum {
     number_of_registers      = LP64_ONLY( 32 ) NOT_LP64( 8 ),
-    number_of_byte_registers = LP64_ONLY( 16 ) NOT_LP64( 4 ),
+    number_of_byte_registers = LP64_ONLY( 32 ) NOT_LP64( 4 ),
     max_slots_per_register   = LP64_ONLY(  2 ) NOT_LP64( 1 )
   };
 

@@ -681,6 +681,9 @@ class NativeTstRegMem: public NativeInstruction {
     instruction_rex_prefix_mask = 0xF0,
     instruction_rex_prefix      = Assembler::REX,
     instruction_rex_b_prefix    = Assembler::REX_B,
+    instruction_rex2_prefix     = Assembler::REX2,
+    instruction_rex2_b_prefix   = Assembler::REXBIT_B,
+    instruction_rex2_b4_prefix  = Assembler::REX2BIT_B4,
     instruction_code_memXregl   = 0x85,
     modrm_mask                  = 0x38, // select reg from the ModRM byte
     modrm_reg                   = 0x00  // rax
@@ -706,8 +709,14 @@ inline bool NativeInstruction::is_cond_jump()    { return (int_at(0) & 0xF0FF) =
                                                           (ubyte_at(0) & 0xF0) == 0x70;  /* short jump */ }
 inline bool NativeInstruction::is_safepoint_poll() {
 #ifdef AMD64
+  const bool has_rex2_prefix = (ubyte_at(0) == NativeTstRegMem::instruction_rex2_prefix) &&
+                               ((ubyte_at(1) == 0) ||
+                                (ubyte_at(1) == NativeTstRegMem::instruction_rex2_b_prefix) ||
+                                (ubyte_at(1) == NativeTstRegMem::instruction_rex2_b4_prefix) ||
+                                (ubyte_at(1) == (NativeTstRegMem::instruction_rex2_b_prefix |
+                                                 NativeTstRegMem::instruction_rex2_b4_prefix)));
   const bool has_rex_prefix = ubyte_at(0) == NativeTstRegMem::instruction_rex_b_prefix;
-  const int test_offset = has_rex_prefix ? 1 : 0;
+  const int test_offset = has_rex2_prefix ? 2: (has_rex_prefix ? 1 : 0);
 #else
   const int test_offset = 0;
 #endif

@@ -12548,7 +12548,7 @@ instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
   format %{ "testl   rax, [$poll]\t"
             "# Safepoint: poll for GC" %}
   ins_cost(125);
-  size(4); /* setting an explicit size will cause debug builds to assert if size is incorrect */
+  size(5); /* setting an explicit size will cause debug builds to assert if size is incorrect */
   ins_encode %{
     __ relocate(relocInfo::poll_type);
     address pre_pc = __ pc();
