@@ -325,8 +325,10 @@ protected:
 
   static bool _has_intel_jcc_erratum;
 
-  static address   _cpuinfo_segv_addr; // address of instruction which causes SEGV
-  static address   _cpuinfo_cont_addr; // address of instruction after the one which causes SEGV
+  static address   _cpuinfo_segv_addr;     // address of instruction which causes SEGV
+  static address   _cpuinfo_cont_addr;     // address of instruction after the one which causes SEGV
+  static address   _cpuinfo_segv_addr_apx; // address of instruction which causes APX specific SEGV
+  static address   _cpuinfo_cont_addr_apx; // address of instruction which causes APX specific SEGV
 
   /*
    * Update following files when declaring new flags:
@@ -599,12 +601,20 @@ public:
 
   // The value used to check ymm register after signal handle
   static int ymm_test_value()    { return 0xCAFEBABE; }
+  static long long egpr_test_value()   { return 0xCAFEBABECAFEBABEULL; }
 
   static void get_cpu_info_wrapper();
   static void set_cpuinfo_segv_addr(address pc) { _cpuinfo_segv_addr = pc; }
   static bool  is_cpuinfo_segv_addr(address pc) { return _cpuinfo_segv_addr == pc; }
   static void set_cpuinfo_cont_addr(address pc) { _cpuinfo_cont_addr = pc; }
   static address  cpuinfo_cont_addr()           { return _cpuinfo_cont_addr; }
+
+  static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
+  static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }
+  static void set_cpuinfo_cont_addr_apx(address pc) { _cpuinfo_cont_addr_apx = pc; }
+  static address  cpuinfo_cont_addr_apx()           { return _cpuinfo_cont_addr_apx; }
+
+  static void clear_apx_test_state();
 
   static void clean_cpuFeatures()   { _features = 0; }
   static void set_avx_cpuFeatures() { _features = (CPU_SSE | CPU_SSE2 | CPU_AVX | CPU_VZEROUPPER ); }
