@@ -97,7 +97,7 @@ class RegisterSaver {
   // units because compiler frame slots are jints.
 #define XSAVE_AREA_BEGIN 160
 #define XSAVE_AREA_YMM_BEGIN 576
-#define XSAVE_AREA_EGPRS 960
+#define XSAVE_AREA_EGPRS_BEGIN 960
 #define XSAVE_AREA_OPMASK_BEGIN 1088
 #define XSAVE_AREA_ZMM_BEGIN 1152
 #define XSAVE_AREA_UPPERBANK 1664
@@ -116,7 +116,7 @@ class RegisterSaver {
     DEF_YMM_OFFS(0),
     DEF_YMM_OFFS(1),
     // 2..15 are implied in range usage
-    r31_off = xmm_off + (XSAVE_AREA_EGPRS - XSAVE_AREA_BEGIN)/BytesPerInt,
+    r31_off = xmm_off + (XSAVE_AREA_EGPRS_BEGIN - XSAVE_AREA_BEGIN)/BytesPerInt,
     r31H_off,
     r30_off, r30H_off,
     r29_off, r29H_off,
@@ -267,6 +267,16 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
 #endif
     }
   }
+
+#if COMPILER2_OR_JVMCI
+  if (VM_Version::supports_apx_f()) {
+    int base_addr = XSAVE_AREA_EGPRS_BEGIN;
+    int off = 0;
+    for(int n = 16; n < Register::number_of_registers; n++) {
+      __ movq(Address(rsp, base_addr+(off++*16)), as_Register(n));
+    }
+  }
+#endif
   __ vzeroupper();
   if (frame::arg_reg_save_area_bytes != 0) {
     // Allocate argument register save area
@@ -484,6 +494,16 @@ void RegisterSaver::restore_live_registers(MacroAssembler* masm, bool restore_wi
 #endif
     }
   }
+
+#if COMPILER2_OR_JVMCI
+  if (VM_Version::supports_apx_f()) {
+    int base_addr = XSAVE_AREA_EGPRS_BEGIN;
+    int off = 0;
+    for(int n = 16; n < Register::number_of_registers; n++) {
+      __ movq(as_Register(n), Address(rsp, base_addr+(off++*16)));
+    }
+  }
+#endif
 
   // Recover CPU state
   __ pop_CPU_state();
@@ -2596,6 +2616,9 @@ void SharedRuntime::generate_deopt_blob() {
     pad += 512; // Increase the buffer size when compiling for JVMCI
   }
 #endif
+  if (UseAPX > 0) {
+    pad += 256;
+  }
   CodeBuffer buffer("deopt_blob", 2560+pad, 1024);
   MacroAssembler* masm = new MacroAssembler(&buffer);
   int frame_size_in_words;
@@ -3144,7 +3167,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(address call_ptr, int poll_t
   OopMap* map;
 
   // Allocate space for the code.  Setup code generation tools.
-  CodeBuffer buffer("handler_blob", 2048, 1024);
+  CodeBuffer buffer("handler_blob", 2368, 1024);
   MacroAssembler* masm = new MacroAssembler(&buffer);
 
   address start   = __ pc();
@@ -3307,7 +3330,7 @@ RuntimeStub* SharedRuntime::generate_resolve_blob(address destination, const cha
   // allocate space for the code
   ResourceMark rm;
 
-  CodeBuffer buffer(name, 1200, 512);
+  CodeBuffer buffer(name, 1456, 512);
   MacroAssembler* masm = new MacroAssembler(&buffer);
 
   int frame_size_in_words;
