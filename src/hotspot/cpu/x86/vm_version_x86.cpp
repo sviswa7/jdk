@@ -952,11 +952,11 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
   }
 
-  if (FLAG_IS_DEFAULT(UseAPX) && (UseAVX > 2)) {
-    FLAG_SET_DEFAULT(UseAPX, supports_apx_f() ? 1 : 0);
-  } else if (UseAPX > 0) {
+  if (UseAPX > 0 && !supports_apx_f()) {
     warning("UseAPX=%d is not supported on this CPU, setting it to 0", UseAPX);
     FLAG_SET_DEFAULT(UseAPX, 0);
+  } else if (FLAG_IS_DEFAULT(UseAPX)) {
+    FLAG_SET_DEFAULT(UseAPX, supports_apx_f() ? 1 : 0);
   }
 
   if (UseAVX < 3) {
