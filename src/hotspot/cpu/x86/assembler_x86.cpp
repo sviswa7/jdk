@@ -625,7 +625,7 @@ void Assembler::emit_operand_helper(int reg_enc, int base_enc, int index_enc,
     if (is_valid_encoding(index_enc)) {
       assert(scale != Address::no_scale, "inconsistent address");
       // [base + index*scale + disp]
-      if (disp == 0 && no_relocation && ((base_enc & 0x7) != 5)) {       
+      if (disp == 0 && no_relocation && ((base_enc & 0x7) != 5)) {
         // [base + index*scale]
         // [00 reg 100][ss index base]
         emit_modrm_sib(0b00, reg_enc, 0b100,
@@ -1303,6 +1303,33 @@ void Assembler::emit_operand(XMMRegister reg, Address adr, int post_addr_length)
   }
 }
 
+void Assembler::emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding, int byte3) {
+  int opcode_prefix = (ocp_and_encoding & 0xFF00) >> 8;
+  if (opcode_prefix != 0) {
+    emit_int32(opcode_prefix, (unsigned char)byte1, byte2 | (ocp_and_encoding & 0xFF), byte3);
+  } else {
+    emit_int24((unsigned char)byte1, byte2 | (ocp_and_encoding & 0xFF), byte3);
+  }
+}
+
+void Assembler::emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding) {
+  int opcode_prefix = (ocp_and_encoding & 0xFF00) >> 8;
+  if (opcode_prefix != 0) {
+    emit_int24(opcode_prefix, (unsigned char)byte1, byte2 | (ocp_and_encoding & 0xFF));
+  } else {
+    emit_int16((unsigned char)byte1, byte2 | (ocp_and_encoding & 0xFF));
+  }
+}
+
+void Assembler::emit_opcode_prefix_and_encoding(int byte1, int ocp_and_encoding) {
+  int opcode_prefix = (ocp_and_encoding & 0xFF00) >> 8;
+  if (opcode_prefix != 0) {
+    emit_int16(opcode_prefix, (unsigned char)byte1 | (ocp_and_encoding & 0xFF));
+  } else {
+    emit_int8((unsigned char)byte1 | (ocp_and_encoding & 0xFF));
+  }
+}
+
 // Now the Assembler instructions (identical for 32/64 bits)
 
 void Assembler::adcl(Address dst, int32_t imm32) {
@@ -1642,28 +1669,17 @@ void Assembler::andnl(Register dst, Register src1, Address src2) {
 
 void Assembler::bsfl(Register dst, Register src) {
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBC,
-             0xC0 | encode);
+  emit_opcode_prefix_and_encoding((unsigned char)0xBC, 0xC0, encode);
 }
 
 void Assembler::bsrl(Register dst, Register src) {
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBD,
-             0xC0 | encode);
+  emit_opcode_prefix_and_encoding((unsigned char)0xBD, 0xC0, encode);
 }
 
 void Assembler::bswapl(Register reg) { // bswap
-  int encode = prefix_and_encode(reg->encoding(), false, true /* is_map1 */);
-  if (!needs_rex2(reg)) {
-    emit_int8(0x0F);
-  }
-  emit_int8((0xC8 | encode));
+  int encode = prefix_and_encode(reg->encoding(), false, true);
+  emit_opcode_prefix_and_encoding((unsigned char)0xC8, encode);
 }
 
 void Assembler::blsil(Register dst, Register src) {
@@ -1777,21 +1793,13 @@ void Assembler::cld() {
 void Assembler::cmovl(Condition cc, Register dst, Register src) {
   NOT_LP64(guarantee(VM_Version::supports_cmov(), "illegal instruction"));
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16(0x40 | cc,
-             0xC0 | encode);
+  emit_opcode_prefix_and_encoding(0x40 | cc, 0xC0, encode);
 }
-
 
 void Assembler::cmovl(Condition cc, Register dst, Address src) {
   InstructionMark im(this);
   NOT_LP64(guarantee(VM_Version::supports_cmov(), "illegal instruction"));
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((0x40 | cc));
   emit_operand(dst, src, 0);
 }
@@ -1848,9 +1856,6 @@ void Assembler::cmpw(Address dst, int imm16) {
 void Assembler::cmpxchgl(Register reg, Address adr) { // cmpxchg
   InstructionMark im(this);
   prefix(adr, reg, false, true /* is_map1 */);
-  if (!needs_rex2(reg, adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB1);
   emit_operand(reg, adr, 0);
 }
@@ -1859,9 +1864,6 @@ void Assembler::cmpxchgw(Register reg, Address adr) { // cmpxchg
   InstructionMark im(this);
   size_prefix();
   prefix(adr, reg, false, true /* is_map1 */);
-  if (!needs_rex2(reg, adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB1);
   emit_operand(reg, adr, 0);
 }
@@ -1872,9 +1874,6 @@ void Assembler::cmpxchgw(Register reg, Address adr) { // cmpxchg
 void Assembler::cmpxchgb(Register reg, Address adr) { // cmpxchg
   InstructionMark im(this);
   prefix(adr, reg, true, true /* is_map1 */);
-  if (!needs_rex2(reg, adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB0);
   emit_operand(reg, adr, 0);
 }
@@ -1931,72 +1930,85 @@ void Assembler::cpuid() {
 // F2 0F 38 F1 / r       CRC32 r32, r / m32  RM        Valid             Valid             Accumulate CRC32 on r / m32. v
 //
 // F2 REX.W 0F 38 F1 / r CRC32 r64, r / m64  RM        Valid             N.E.              Accumulate CRC32 on r / m64. v
-// APX_TODO
 void Assembler::crc32(Register crc, Register v, int8_t sizeInBytes) {
   assert(VM_Version::supports_sse4_2(), "");
-  int8_t w = 0x01;
-  Prefix p = Prefix_EMPTY;
+  if (needs_rex2(crc, v)) {
+    InstructionAttr attributes(AVX_128bit, /* rex_w */ sizeInBytes == 8, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ false);
+    int encode = vex_prefix_and_encode(crc->encoding(), 0, v->encoding(), VEX_SIMD_NONE, VEX_OPCODE_0F_3C, &attributes, true);
+    emit_int16(sizeInBytes == 1 ? (unsigned char)0xF0 : (unsigned char)0xF1, (0xC0 | encode));
+  } else {
+    int8_t w = 0x01;
+    Prefix p = Prefix_EMPTY;
 
-  emit_int8((unsigned char)0xF2);
-  switch (sizeInBytes) {
-  case 1:
-    w = 0;
-    break;
-  case 2:
-  case 4:
-    break;
-  LP64_ONLY(case 8:)
-    // This instruction is not valid in 32 bits
-    // Note:
-    // http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
-    //
-    // Page B - 72   Vol. 2C says
-    // qwreg2 to qwreg            1111 0010 : 0100 1R0B : 0000 1111 : 0011 1000 : 1111 0000 : 11 qwreg1 qwreg2
-    // mem64 to qwreg             1111 0010 : 0100 1R0B : 0000 1111 : 0011 1000 : 1111 0000 : mod qwreg r / m
-    //                                                                            F0!!!
-    // while 3 - 208 Vol. 2A
-    // F2 REX.W 0F 38 F1 / r       CRC32 r64, r / m64             RM         Valid      N.E.Accumulate CRC32 on r / m64.
-    //
-    // the 0 on a last bit is reserved for a different flavor of this instruction :
-    // F2 REX.W 0F 38 F0 / r       CRC32 r64, r / m8              RM         Valid      N.E.Accumulate CRC32 on r / m8.
-    p = REX_W;
-    break;
-  default:
-    assert(0, "Unsupported value for a sizeInBytes argument");
-    break;
+    emit_int8((unsigned char)0xF2);
+    switch (sizeInBytes) {
+    case 1:
+      w = 0;
+      break;
+    case 2:
+    case 4:
+      break;
+    LP64_ONLY(case 8:)
+      // This instruction is not valid in 32 bits
+      // Note:
+      // http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
+      //
+      // Page B - 72   Vol. 2C says
+      // qwreg2 to qwreg            1111 0010 : 0100 1R0B : 0000 1111 : 0011 1000 : 1111 0000 : 11 qwreg1 qwreg2
+      // mem64 to qwreg             1111 0010 : 0100 1R0B : 0000 1111 : 0011 1000 : 1111 0000 : mod qwreg r / m
+      //                                                                            F0!!!
+      // while 3 - 208 Vol. 2A
+      // F2 REX.W 0F 38 F1 / r       CRC32 r64, r / m64             RM         Valid      N.E.Accumulate CRC32 on r / m64.
+      //
+      // the 0 on a last bit is reserved for a different flavor of this instruction :
+      // F2 REX.W 0F 38 F0 / r       CRC32 r64, r / m8              RM         Valid      N.E.Accumulate CRC32 on r / m8.
+      p = REX_W;
+      break;
+    default:
+      assert(0, "Unsupported value for a sizeInBytes argument");
+      break;
+    }
+    LP64_ONLY(prefix(crc, v, p);)
+    emit_int32(0x0F,
+               0x38,
+               0xF0 | w,
+               0xC0 | ((crc->encoding() & 0x7) << 3) | (v->encoding() & 7));
   }
-  LP64_ONLY(prefix(crc, v, p);)
-  emit_int32(0x0F,
-             0x38,
-             0xF0 | w,
-             0xC0 | ((crc->encoding() & 0x7) << 3) | (v->encoding() & 7));
 }
 
 void Assembler::crc32(Register crc, Address adr, int8_t sizeInBytes) {
   assert(VM_Version::supports_sse4_2(), "");
   InstructionMark im(this);
-  int8_t w = 0x01;
-  Prefix p = Prefix_EMPTY;
+  if (needs_rex2(crc, adr.base(), adr.index())) {
+    InstructionAttr attributes(AVX_128bit, /* vex_w */ sizeInBytes == 8, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+    attributes.set_address_attributes(/* tuple_type */ EVEX_NOSCALE, /* input_size_in_bits */ EVEX_64bit);
+    vex_prefix(adr, 0, crc->encoding(), VEX_SIMD_NONE, VEX_OPCODE_0F_3C, &attributes);
+    emit_int8(sizeInBytes == 1 ? (unsigned char)0xF0 : (unsigned char)0xF1);
+    emit_operand(crc, adr, 0);
+  } else {
+    int8_t w = 0x01;
+    Prefix p = Prefix_EMPTY;
 
-  emit_int8((uint8_t)0xF2);
-  switch (sizeInBytes) {
-  case 1:
-    w = 0;
-    break;
-  case 2:
-  case 4:
-    break;
-  LP64_ONLY(case 8:)
-    // This instruction is not valid in 32 bits
-    p = REX_W;
-    break;
-  default:
-    assert(0, "Unsupported value for a sizeInBytes argument");
-    break;
+    emit_int8((uint8_t)0xF2);
+    switch (sizeInBytes) {
+    case 1:
+      w = 0;
+      break;
+    case 2:
+    case 4:
+      break;
+    LP64_ONLY(case 8:)
+      // This instruction is not valid in 32 bits
+      p = REX_W;
+      break;
+    default:
+      assert(0, "Unsupported value for a sizeInBytes argument");
+      break;
+    }
+    LP64_ONLY(prefix(crc, adr, p);)
+    emit_int24(0x0F, 0x38, (0xF0 | w));
+    emit_operand(crc, adr, 0);
   }
-  LP64_ONLY(prefix(crc, adr, p);)
-  emit_int24(0x0F, 0x38, (0xF0 | w));
-  emit_operand(crc, adr, 0);
 }
 
 void Assembler::cvtdq2pd(XMMRegister dst, XMMRegister src) {
@@ -2436,11 +2448,7 @@ void Assembler::imull(Register src) {
 
 void Assembler::imull(Register dst, Register src) {
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xAF,
-             (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xAF, 0xC0, encode);
 }
 
 void Assembler::imull(Register dst, Address src, int32_t value) {
@@ -2470,9 +2478,6 @@ void Assembler::imull(Register dst, Register src, int value) {
 void Assembler::imull(Register dst, Address src) {
   InstructionMark im(this);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xAF);
   emit_operand(dst, src, 0);
 }
@@ -2608,7 +2613,6 @@ void Assembler::jmpb_0(Label& L, const char* file, int line) {
   }
 }
 
-// APX_TODO
 void Assembler::ldmxcsr( Address src) {
   if (UseAVX > 0 ) {
     InstructionMark im(this);
@@ -2619,8 +2623,8 @@ void Assembler::ldmxcsr( Address src) {
   } else {
     NOT_LP64(assert(VM_Version::supports_sse(), ""));
     InstructionMark im(this);
-    prefix(src);
-    emit_int16(0x0F, (unsigned char)0xAE);
+    prefix(src, true);
+    emit_int8((unsigned char)0xAE);
     emit_operand(as_Register(2), src, 0);
   }
 }
@@ -2648,10 +2652,7 @@ void Assembler::lzcntl(Register dst, Register src) {
   assert(VM_Version::supports_lzcnt(), "encoding is treated as BSR");
   emit_int8((unsigned char)0xF3);
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBD, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBD, 0xC0, encode);
 }
 
 void Assembler::lzcntl(Register dst, Address src) {
@@ -2659,9 +2660,6 @@ void Assembler::lzcntl(Register dst, Address src) {
   InstructionMark im(this);
   emit_int8((unsigned char)0xF3);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBD);
   emit_operand(dst, src, 0);
 }
@@ -3629,9 +3627,6 @@ void Assembler::movq(XMMRegister dst, Register src) {
 void Assembler::movsbl(Register dst, Address src) { // movsxb
   InstructionMark im(this);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBE);
   emit_operand(dst, src, 0);
 }
@@ -3639,10 +3634,7 @@ void Assembler::movsbl(Register dst, Address src) { // movsxb
 void Assembler::movsbl(Register dst, Register src) { // movsxb
   NOT_LP64(assert(src->has_byte_register(), "must have byte register"));
   int encode = prefix_and_encode(dst->encoding(), false, src->encoding(), true, true /* is_map1 */);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBE, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBE, 0xC0, encode);
 }
 
 void Assembler::movsd(XMMRegister dst, XMMRegister src) {
@@ -3715,19 +3707,13 @@ void Assembler::movss(Address dst, XMMRegister src) {
 void Assembler::movswl(Register dst, Address src) { // movsxw
   InstructionMark im(this);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBF);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::movswl(Register dst, Register src) { // movsxw
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBF, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBF, 0xC0, encode);
 }
 
 void Assembler::movups(XMMRegister dst, Address src) {
@@ -3799,9 +3785,6 @@ void Assembler::movw(Address dst, Register src) {
 void Assembler::movzbl(Register dst, Address src) { // movzxb
   InstructionMark im(this);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB6);
   emit_operand(dst, src, 0);
 }
@@ -3809,28 +3792,19 @@ void Assembler::movzbl(Register dst, Address src) { // movzxb
 void Assembler::movzbl(Register dst, Register src) { // movzxb
   NOT_LP64(assert(src->has_byte_register(), "must have byte register"));
   int encode = prefix_and_encode(dst->encoding(), false, src->encoding(), true, true /* is_map1 */);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB6, 0xC0 | encode);
+  emit_opcode_prefix_and_encoding((unsigned char)0xB6, 0xC0, encode);
 }
 
 void Assembler::movzwl(Register dst, Address src) { // movzxw
   InstructionMark im(this);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB7);
   emit_operand(dst, src, 0);
 }
 
 void Assembler::movzwl(Register dst, Register src) { // movzxw
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB7, 0xC0 | encode);
+  emit_opcode_prefix_and_encoding((unsigned char)0xB7, 0xC0, encode);
 }
 
 void Assembler::mull(Address src) {
@@ -5339,9 +5313,6 @@ void Assembler::popcntl(Register dst, Address src) {
   InstructionMark im(this);
   emit_int8((unsigned char)0xF3);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xB8);
   emit_operand(dst, src, 0);
 }
@@ -5350,10 +5321,7 @@ void Assembler::popcntl(Register dst, Register src) {
   assert(VM_Version::supports_popcnt(), "must support");
   emit_int8((unsigned char)0xF3);
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB8, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xB8, 0xC0, encode);
 }
 
 void Assembler::evpopcntb(XMMRegister dst, KRegister mask, XMMRegister src, bool merge, int vector_len) {
@@ -5426,9 +5394,6 @@ void Assembler::prefetchnta(Address src) {
   NOT_LP64(assert(VM_Version::supports_sse(), "must support"));
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x18);
   emit_operand(rax, src, 0); // 0, src
 }
@@ -5437,9 +5402,6 @@ void Assembler::prefetchr(Address src) {
   assert(VM_Version::supports_3dnow_prefetch(), "must support");
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x0D);
   emit_operand(rax, src, 0); // 0, src
 }
@@ -5448,9 +5410,6 @@ void Assembler::prefetcht0(Address src) {
   NOT_LP64(assert(VM_Version::supports_sse(), "must support"));
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x18);
   emit_operand(rcx, src, 0); // 1, src
 }
@@ -5459,9 +5418,6 @@ void Assembler::prefetcht1(Address src) {
   NOT_LP64(assert(VM_Version::supports_sse(), "must support"));
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x18);
   emit_operand(rdx, src, 0); // 2, src
 }
@@ -5470,9 +5426,6 @@ void Assembler::prefetcht2(Address src) {
   NOT_LP64(assert(VM_Version::supports_sse(), "must support"));
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x18);
   emit_operand(rbx, src, 0); // 3, src
 }
@@ -5481,9 +5434,6 @@ void Assembler::prefetchw(Address src) {
   assert(VM_Version::supports_3dnow_prefetch(), "must support");
   InstructionMark im(this);
   prefix(src, true);
-  if (!needs_rex2(src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8(0x0D);
   emit_operand(rcx, src, 0); // 1, src
 }
@@ -5493,6 +5443,7 @@ void Assembler::prefix(Prefix p) {
 }
 
 void Assembler::prefix16(int prefix) {
+  assert(UseAPX, "APX features not enabled");
   emit_int8((prefix & 0xff00) >> 8);
   emit_int8(prefix & 0xff);
 }
@@ -6135,10 +6086,7 @@ void Assembler::sbbl(Register dst, Register src) {
 void Assembler::setb(Condition cc, Register dst) {
   assert(0 <= cc && cc < 16, "illegal cc");
   int encode = prefix_and_encode(dst->encoding(), true, true /* is_map1 */);
-  if (!needs_rex2(dst, noreg)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0x90 | cc, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0x90 | cc, 0xC0, encode);
 }
 
 void Assembler::palignr(XMMRegister dst, XMMRegister src, int imm8) {
@@ -6272,50 +6220,33 @@ void Assembler::shrl(Address dst, int imm8) {
 
 void Assembler::shldl(Register dst, Register src) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }  emit_int16((unsigned char)0xA5, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xA5, 0xC0, encode);
 }
 
 void Assembler::shldl(Register dst, Register src, int8_t imm8) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int24((unsigned char)0xA4, (0xC0 | encode), imm8);
+  emit_opcode_prefix_and_encoding((unsigned char)0xA4, 0xC0, encode, imm8);
 }
 
 void Assembler::shrdl(Register dst, Register src) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xAD, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xAD, 0xC0, encode);
 }
 
 void Assembler::shrdl(Register dst, Register src, int8_t imm8) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int24((unsigned char)0xAC, (0xC0 | encode), imm8);
+  emit_opcode_prefix_and_encoding((unsigned char)0xAC, 0xC0, encode, imm8);
 }
 
 #ifdef _LP64
 void Assembler::shldq(Register dst, Register src, int8_t imm8) {
   int encode = prefixq_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int24((unsigned char)0xA4, (0xC0 | encode), imm8);
+  emit_opcode_prefix_and_encoding((unsigned char)0xA4, 0xC0, encode, imm8);
 }
 
 void Assembler::shrdq(Register dst, Register src, int8_t imm8) {
   int encode = prefixq_and_encode(src->encoding(), dst->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int24((unsigned char)0xAC, (0xC0 | encode), imm8);
+  emit_opcode_prefix_and_encoding((unsigned char)0xAC, 0xC0, encode, imm8);
 }
 #endif
 
@@ -6381,8 +6312,7 @@ void Assembler::sqrtss(XMMRegister dst, Address src) {
   emit_operand(dst, src, 0);
 }
 
-// APX_TODO
-void Assembler::stmxcsr( Address dst) {
+void Assembler::stmxcsr(Address dst) {
   if (UseAVX > 0 ) {
     assert(VM_Version::supports_avx(), "");
     InstructionMark im(this);
@@ -6393,8 +6323,8 @@ void Assembler::stmxcsr( Address dst) {
   } else {
     NOT_LP64(assert(VM_Version::supports_sse(), ""));
     InstructionMark im(this);
-    prefix(dst);
-    emit_int16(0x0F, (unsigned char)0xAE);
+    prefix(dst, true);
+    emit_int8((unsigned char)0xAE);
     emit_operand(as_Register(3), dst, 0);
   }
 }
@@ -6535,11 +6465,7 @@ void Assembler::tzcntl(Register dst, Register src) {
   assert(VM_Version::supports_bmi1(), "tzcnt instruction not supported");
   emit_int8((unsigned char)0xF3);
   int encode = prefix_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBC,
-             0xC0 | encode);
+  emit_opcode_prefix_and_encoding((unsigned char)0xBC, 0xC0, encode);
 }
 
 void Assembler::tzcntl(Register dst, Address src) {
@@ -6547,9 +6473,6 @@ void Assembler::tzcntl(Register dst, Address src) {
   InstructionMark im(this);
   emit_int8((unsigned char)0xF3);
   prefix(src, dst, false, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBC);
   emit_operand(dst, src, 0);
 }
@@ -6558,10 +6481,7 @@ void Assembler::tzcntq(Register dst, Register src) {
   assert(VM_Version::supports_bmi1(), "tzcnt instruction not supported");
   emit_int8((unsigned char)0xF3);
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBC, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBC, 0xC0, encode);
 }
 
 void Assembler::tzcntq(Register dst, Address src) {
@@ -6569,9 +6489,6 @@ void Assembler::tzcntq(Register dst, Address src) {
   InstructionMark im(this);
   emit_int8((unsigned char)0xF3);
   prefixq(src, dst, true /* is_map1 */);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBC);
   emit_operand(dst, src, 0);
 }
@@ -6619,9 +6536,6 @@ void Assembler::xabort(int8_t imm8) {
 void Assembler::xaddb(Address dst, Register src) {
   InstructionMark im(this);
   prefix(dst, src, true, true /* is_map1 */);
-  if (!needs_rex2(dst.base(), dst.index(), src)) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xC0);
   emit_operand(src, dst, 0);
 }
@@ -6630,9 +6544,6 @@ void Assembler::xaddw(Address dst, Register src) {
   InstructionMark im(this);
   emit_int8(0x66);
   prefix(dst, src, false, true /* is_map1 */);
-  if (!needs_rex2(dst.base(), dst.index(),src)) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xC1);
   emit_operand(src, dst, 0);
 }
@@ -6640,9 +6551,6 @@ void Assembler::xaddw(Address dst, Register src) {
 void Assembler::xaddl(Address dst, Register src) {
   InstructionMark im(this);
   prefix(dst, src, false, true /* is_map1 */);
-  if (!needs_rex2(dst.base(), dst.index(), src)) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xC1);
   emit_operand(src, dst, 0);
 }
@@ -11770,7 +11678,7 @@ void Assembler::evex_prefix(bool vex_r, bool vex_b, bool vex_x, bool evex_r, boo
   byte2 = (~byte2) & 0xF0;
   byte2 |= evex_b ? EEVEX_B : 0;
   // confine opc opcode extensions in mm bits to lower two bits
-  // of form {0F, 0F_38, 0F_3A}
+  // of form {0F, 0F_38, 0F_3A, 0F_3C}
   byte2 |= opc;
 
   // P1: byte 3 as Wvvvv1pp
@@ -12896,30 +12804,30 @@ void Assembler::emit_data64(jlong data,
 
 int Assembler::get_base_prefix_bits(int enc) {
   int bits = 0;
-  if (enc & 16) bits |= REX2BIT_B4; 
-  if (enc & 8) bits |= REXBIT_B; 
+  if (enc & 16) bits |= REX2BIT_B4;
+  if (enc & 8) bits |= REXBIT_B;
   return bits;
 }
 
 int Assembler::get_index_prefix_bits(int enc) {
   int bits = 0;
-  if (enc & 16) bits |= REX2BIT_X4; 
-  if (enc & 8) bits |= REXBIT_X; 
+  if (enc & 16) bits |= REX2BIT_X4;
+  if (enc & 8) bits |= REXBIT_X;
   return bits;
 }
 
 int Assembler::get_base_prefix_bits(Register base) {
-  return base->is_valid() ? get_base_prefix_bits(base->encoding()) : 0; 
+  return base->is_valid() ? get_base_prefix_bits(base->encoding()) : 0;
 }
 
 int Assembler::get_index_prefix_bits(Register index) {
-  return index->is_valid() ? get_index_prefix_bits(index->encoding()) : 0; 
+  return index->is_valid() ? get_index_prefix_bits(index->encoding()) : 0;
 }
 
 int Assembler::get_reg_prefix_bits(int enc) {
   int bits = 0;
-  if (enc & 16) bits |= REX2BIT_R4; 
-  if (enc & 8) bits |= REXBIT_R; 
+  if (enc & 16) bits |= REX2BIT_R4;
+  if (enc & 8) bits |= REXBIT_R;
   return bits;
 }
 
@@ -13005,11 +12913,12 @@ void Assembler::prefix(Address adr, bool is_map1) {
       prefix(REX_X);
     }
   }
+  if (is_map1) emit_int8(0x0F);
 }
 
 void Assembler::prefix_rex2(Address adr, bool is_map1) {
   int bits = is_map1 ? REX2BIT_M0 : 0;
-  bits |= get_base_prefix_bits(adr.base());
+  bits |= get_base_prefix_bits(adr.base()->encoding());
   bits |= get_index_prefix_bits(adr.index());
   prefix16(WREX2 | bits);
 }
@@ -13048,11 +12957,12 @@ void Assembler::prefix(Address adr, Register reg, bool byteinst, bool is_map1) {
       }
     }
   }
+  if (is_map1) emit_int8(0x0F);
 }
 
 void Assembler::prefix_rex2(Address adr, Register reg, bool byteinst, bool is_map1) {
   int bits = is_map1 ? REX2BIT_M0 : 0;
-  bits |= get_base_prefix_bits(adr.base());
+  bits |= get_base_prefix_bits(adr.base()->encoding());
   bits |= get_index_prefix_bits(adr.index());
   bits |= get_reg_prefix_bits(reg->encoding());
   prefix16(WREX2 | bits);
@@ -13096,7 +13006,7 @@ void Assembler::prefix_rex2(Address adr, XMMRegister src) {
   int bits = 0;
   bits |= get_base_prefix_bits(adr.base());
   bits |= get_index_prefix_bits(adr.index());
-  bits |= get_reg_prefix_bits(src->encoding()); 
+  bits |= get_reg_prefix_bits(src->encoding());
   prefix16(WREX2 | bits);
 }
 
@@ -13110,7 +13020,8 @@ int Assembler::prefix_and_encode(int reg_enc, bool byteinst, bool is_map1) {
   } else if (byteinst && reg_enc >= 4) {
     prefix(REX);
   }
-  return reg_enc;
+  int opc_prefix = is_map1 ? 0x0F00 : 0;
+  return opc_prefix | reg_enc;
 }
 
 int Assembler::prefix_and_encode_rex2(int reg_enc, bool is_map1) {
@@ -13138,7 +13049,8 @@ int Assembler::prefix_and_encode(int dst_enc, bool dst_is_byte, int src_enc, boo
     }
     dst_enc -= 8;
   }
-  return dst_enc << 3 | src_enc;
+  int opcode_prefix = is_map1 ? 0x0F00 : 0;
+  return opcode_prefix | (dst_enc << 3 | src_enc);
 }
 
 int Assembler::prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits) {
@@ -13146,7 +13058,7 @@ int Assembler::prefix_and_encode_rex2(int dst_enc, int src_enc, int init_bits) {
   bits |= get_reg_prefix_bits(dst_enc);
   bits |= get_base_prefix_bits(src_enc);
   dst_enc &= 0x7;
-  src_enc &= 0x7;  
+  src_enc &= 0x7;
   prefix16(WREX2 | bits);
   return dst_enc << 3 | src_enc;
 }
@@ -13165,6 +13077,7 @@ int Assembler::get_prefixq(Address adr, bool is_map1) {
 }
 
 int Assembler::get_prefixq_rex2(Address adr, bool is_map1) {
+  assert(UseAPX, "APX features not enabled");
   int bits = REXBIT_W;
   if (is_map1) bits |= REX2BIT_M0;
   bits |= get_base_prefix_bits(adr.base());
@@ -13215,29 +13128,32 @@ int Assembler::get_prefixq(Address adr, Register src, bool is_map1) {
 }
 
 int Assembler::get_prefixq_rex2(Address adr, Register src, bool is_map1) {
+  assert(UseAPX, "APX features not enabled");
   int bits = REXBIT_W;
   if (is_map1) bits |= REX2BIT_M0;
   bits |= get_base_prefix_bits(adr.base());
   bits |= get_index_prefix_bits(adr.index());
-  bits |= get_reg_prefix_bits(src->encoding()); 
+  bits |= get_reg_prefix_bits(src->encoding());
   return WREX2 | bits;
 }
 
 void Assembler::prefixq(Address adr) {
   if (adr.base_needs_rex2() || adr.index_needs_rex2()) {
-    emit_int16(get_prefixq_rex2(adr)); 
-  } else { 
+    prefix16(get_prefixq_rex2(adr));
+  } else {
     emit_int8(get_prefixq(adr));
   }
 }
 
 void Assembler::prefixq(Address adr, Register src, bool is_map1) {
   if (adr.base_needs_rex2() || adr.index_needs_rex2() || src->encoding() >= 16) {
-    emit_int16(get_prefixq_rex2(adr, src, is_map1));
+    prefix16(get_prefixq_rex2(adr, src, is_map1));
   } else {
     emit_int8(get_prefixq(adr, src));
+    if (is_map1) emit_int8(0x0F);
   }
 }
+
 
 void Assembler::prefixq(Address adr, XMMRegister src) {
   if (src->encoding() >= 16 || adr.base_needs_rex2() || adr.index_needs_rex2()) {
@@ -13279,7 +13195,7 @@ void Assembler::prefixq_rex2(Address adr, XMMRegister src) {
   int bits = REXBIT_W;
   bits |= get_base_prefix_bits(adr.base());
   bits |= get_index_prefix_bits(adr.index());
-  bits |= get_reg_prefix_bits(src->encoding()); 
+  bits |= get_reg_prefix_bits(src->encoding());
   prefix16(WREX2 | bits);
 }
 
@@ -13293,8 +13209,10 @@ int Assembler::prefixq_and_encode(int reg_enc, bool is_map1) {
     prefix(REX_WB);
     reg_enc -= 8;
   }
-  return reg_enc;
+  int opcode_prefix = is_map1 ? 0x0F00 : 0;
+  return opcode_prefix | reg_enc;
 }
+
 
 int Assembler::prefixq_and_encode_rex2(int reg_enc, bool is_map1) {
   prefix16(WREX2 | REXBIT_W | (is_map1 ? REX2BIT_M0: 0) | get_base_prefix_bits(reg_enc));
@@ -13321,7 +13239,8 @@ int Assembler::prefixq_and_encode(int dst_enc, int src_enc, bool is_map1) {
     }
     dst_enc -= 8;
   }
-  return dst_enc << 3 | src_enc;
+  int opcode_prefix = is_map1 ? 0x0F00 : 0;
+  return opcode_prefix | (dst_enc << 3 | src_enc);
 }
 
 int Assembler::prefixq_and_encode_rex2(int dst_enc, int src_enc, bool is_map1) {
@@ -13381,28 +13300,37 @@ void Assembler::addq(Register dst, Register src) {
   emit_arith(0x03, 0xC0, dst, src);
 }
 
-// APX_TODO
 void Assembler::adcxq(Register dst, Register src) {
   //assert(VM_Version::supports_adx(), "adx instructions not supported");
-  emit_int8(0x66);
-  int encode = prefixq_and_encode(dst->encoding(), src->encoding());
-  emit_int32(0x0F,
-             0x38,
-             (unsigned char)0xF6,
-             (0xC0 | encode));
+  if (needs_rex2(dst, src)) {
+    InstructionAttr attributes(AVX_128bit, /* rex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ false);
+    int encode = vex_prefix_and_encode(dst->encoding(), 0, src->encoding(), VEX_SIMD_66, VEX_OPCODE_0F_3C, &attributes, true);
+    emit_int16((unsigned char)0x66, (0xC0 | encode));
+  } else {
+    emit_int8(0x66);
+    int encode = prefixq_and_encode(dst->encoding(), src->encoding());
+    emit_int32(0x0F,
+               0x38,
+               (unsigned char)0xF6,
+               (0xC0 | encode));
+  }
 }
 
-// APX_TODO
 void Assembler::adoxq(Register dst, Register src) {
   //assert(VM_Version::supports_adx(), "adx instructions not supported");
-  emit_int8((unsigned char)0xF3);
-  int encode = prefixq_and_encode(dst->encoding(), src->encoding());
-  emit_int32(0x0F,
-             0x38,
-             (unsigned char)0xF6,
-             (0xC0 | encode));
+  if (needs_rex2(dst, src)) {
+    InstructionAttr attributes(AVX_128bit, /* rex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ false);
+    int encode = vex_prefix_and_encode(dst->encoding(), 0, src->encoding(), VEX_SIMD_F3, VEX_OPCODE_0F_3C, &attributes, true);
+    emit_int16((unsigned char)0x66, (0xC0 | encode));
+  } else {
+    emit_int8((unsigned char)0xF3);
+    int encode = prefixq_and_encode(dst->encoding(), src->encoding());
+    emit_int32(0x0F,
+               0x38,
+               (unsigned char)0xF6,
+               (0xC0 | encode));
+  }
 }
-
 void Assembler::andq(Address dst, int32_t imm32) {
   InstructionMark im(this);
   prefixq(dst);
@@ -13450,26 +13378,17 @@ void Assembler::andnq(Register dst, Register src1, Address src2) {
 
 void Assembler::bsfq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBC, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBC, 0xC0, encode);
 }
 
 void Assembler::bsrq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBD, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBD, 0xC0, encode);
 }
 
 void Assembler::bswapq(Register reg) {
   int encode = prefixq_and_encode(reg->encoding(), true);
-  if (!needs_rex2(reg)) {
-    emit_int8(0x0F);
-  }
-  emit_int8((0xC8 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xC8, encode);
 }
 
 void Assembler::blsiq(Register dst, Register src) {
@@ -13530,9 +13449,6 @@ void Assembler::cdqq() {
 void Assembler::clflush(Address adr) {
   assert(VM_Version::supports_clflush(), "should do");
   prefix(adr, true);
-  if (!needs_rex2(adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xAE);
   emit_operand(rdi, adr, 0);
 }
@@ -13546,9 +13462,6 @@ void Assembler::clflushopt(Address adr) {
   // instruction prefix is 0x66
   emit_int8(0x66);
   prefix(adr, true);
-  if (!needs_rex2(adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   // opcode family is 0x0F 0xAE
   emit_int8((unsigned char)0xAE);
   // extended opcode byte is 7 == rdi
@@ -13564,9 +13477,6 @@ void Assembler::clwb(Address adr) {
   // instruction prefix is 0x66
   emit_int8(0x66);
   prefix(adr, true);
-  if (!needs_rex2(adr.base(), adr.index())) {
-    emit_int8(0x0F);
-  }
   // opcode family is 0x0f 0xAE
   emit_int8((unsigned char)0xAE);
   // extended opcode byte is 6 == rsi
@@ -13575,10 +13485,7 @@ void Assembler::clwb(Address adr) {
 
 void Assembler::cmovq(Condition cc, Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((0x40 | cc), (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((0x40 | cc), 0xC0, encode);
 }
 
 void Assembler::cmovq(Condition cc, Register dst, Address src) {
@@ -13737,10 +13644,7 @@ void Assembler::divq(Register src) {
 
 void Assembler::imulq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xAF, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xAF, 0xC0, encode);
 }
 
 void Assembler::imulq(Register src) {
@@ -13865,10 +13769,7 @@ void Assembler::lzcntq(Register dst, Register src) {
   assert(VM_Version::supports_lzcnt(), "encoding is treated as BSR");
   emit_int8((unsigned char)0xF3);
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBD, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBD, 0xC0, encode);
 }
 
 void Assembler::lzcntq(Register dst, Address src) {
@@ -13876,9 +13777,6 @@ void Assembler::lzcntq(Register dst, Address src) {
   InstructionMark im(this);
   emit_int8((unsigned char)0xF3);
   prefixq(src, dst, true);
-  if (!needs_rex2(dst, src.base(), src.index())) {
-    emit_int8(0x0F);
-  }
   emit_int8((unsigned char)0xBD);
   emit_operand(dst, src, 0);
 }
@@ -13941,10 +13839,7 @@ void Assembler::movsbq(Register dst, Address src) {
 
 void Assembler::movsbq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBE, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBE, 0xC0, encode);
 }
 
 void Assembler::movslq(Address dst, int32_t imm32) {
@@ -13975,10 +13870,7 @@ void Assembler::movswq(Register dst, Address src) {
 
 void Assembler::movswq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xBF, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xBF, 0xC0, encode);
 }
 
 void Assembler::movzbq(Register dst, Address src) {
@@ -13990,10 +13882,7 @@ void Assembler::movzbq(Register dst, Address src) {
 
 void Assembler::movzbq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB6, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xB6, 0xC0, encode);
 }
 
 void Assembler::movzwq(Register dst, Address src) {
@@ -14005,10 +13894,7 @@ void Assembler::movzwq(Register dst, Address src) {
 
 void Assembler::movzwq(Register dst, Register src) {
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB7, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xB7, 0xC0, encode);
 }
 
 void Assembler::mulq(Address src) {
@@ -14110,10 +13996,7 @@ void Assembler::popcntq(Register dst, Register src) {
   assert(VM_Version::supports_popcnt(), "must support");
   emit_int8((unsigned char)0xF3);
   int encode = prefixq_and_encode(dst->encoding(), src->encoding(), true);
-  if (!needs_rex2(dst, src)) {
-    emit_int8(0x0F);
-  }
-  emit_int16((unsigned char)0xB8, (0xC0 | encode));
+  emit_opcode_prefix_and_encoding((unsigned char)0xB8, 0xC0, encode);
 }
 
 void Assembler::popq(Address dst) {

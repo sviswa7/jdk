@@ -562,7 +562,7 @@ class Assembler : public AbstractAssembler  {
     EEVEX_X = 0x04,
     EEVEX_V = 0x08
   };
-  
+
   enum EvexRoundPrefix {
     EVEX_RNE = 0x0,
     EVEX_RD  = 0x1,
@@ -574,7 +574,7 @@ class Assembler : public AbstractAssembler  {
     VEX_SIMD_NONE = 0x0,
     VEX_SIMD_66   = 0x1,
     VEX_SIMD_F3   = 0x2,
-    VEX_SIMD_F2   = 0x3
+    VEX_SIMD_F2   = 0x3,
   };
 
   enum VexOpcode {
@@ -582,6 +582,7 @@ class Assembler : public AbstractAssembler  {
     VEX_OPCODE_0F    = 0x1,
     VEX_OPCODE_0F_38 = 0x2,
     VEX_OPCODE_0F_3A = 0x3,
+    VEX_OPCODE_0F_3C = 0x4,
     VEX_OPCODE_MASK  = 0x1F
   };
 
@@ -878,7 +879,9 @@ private:
   void emit_data64(jlong data, RelocationHolder const& rspec, int format = 0);
 
   void emit_prefix_and_int8(int prefix, int b1);
-
+  void emit_opcode_prefix_and_encoding(int byte1, int ocp_and_encoding);
+  void emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding);
+  void emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding, int byte3);
   bool always_reachable(AddressLiteral adr) NOT_LP64( { return true; } );
   bool        reachable(AddressLiteral adr) NOT_LP64( { return true; } );
 
