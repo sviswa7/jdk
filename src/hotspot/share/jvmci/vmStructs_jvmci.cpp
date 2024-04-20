@@ -266,7 +266,7 @@
   nonstatic_field(Method,                      _vtable_index,                                 int)                                   \
   nonstatic_field(Method,                      _intrinsic_id,                                 u2)                                    \
   nonstatic_field(Method,                      _flags._status,                                u4)                                    \
-  volatile_nonstatic_field(Method,             _code,                                         CompiledMethod*)                       \
+  volatile_nonstatic_field(Method,             _code,                                         nmethod*)                              \
   volatile_nonstatic_field(Method,             _from_compiled_entry,                          address)                               \
                                                                                                                                      \
   nonstatic_field(MethodCounters,              _invoke_mask,                                  int)                                   \
@@ -294,7 +294,7 @@
   nonstatic_field(MethodData,                  _backedge_mask,                                int)                                   \
   nonstatic_field(MethodData,                  _jvmci_ir_size,                                int)                                   \
                                                                                                                                      \
-  nonstatic_field(nmethod,                     _verified_entry_point,                         address)                               \
+  nonstatic_field(nmethod,                     _verified_entry_offset,                        u2)                                    \
   nonstatic_field(nmethod,                     _comp_level,                                   CompLevel)                             \
                                                                                                                                      \
   nonstatic_field(ObjArrayKlass,               _element_klass,                                Klass*)                                \
