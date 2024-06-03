@@ -562,7 +562,7 @@ class Assembler : public AbstractAssembler  {
     EEVEX_X = 0x04,
     EEVEX_V = 0x08
   };
-  
+
   enum EvexRoundPrefix {
     EVEX_RNE = 0x0,
     EVEX_RD  = 0x1,
@@ -574,7 +574,7 @@ class Assembler : public AbstractAssembler  {
     VEX_SIMD_NONE = 0x0,
     VEX_SIMD_66   = 0x1,
     VEX_SIMD_F3   = 0x2,
-    VEX_SIMD_F2   = 0x3
+    VEX_SIMD_F2   = 0x3,
   };
 
   enum VexOpcode {
@@ -582,6 +582,7 @@ class Assembler : public AbstractAssembler  {
     VEX_OPCODE_0F    = 0x1,
     VEX_OPCODE_0F_38 = 0x2,
     VEX_OPCODE_0F_3A = 0x3,
+    VEX_OPCODE_0F_3C = 0x4,
     VEX_OPCODE_MASK  = 0x1F
   };
 
@@ -734,6 +735,10 @@ private:
   void prefix(Register dst, Address adr, Prefix p);
   void prefix_rex2(Register dst, Address adr);
 
+  // The is_map1 bool indicates an x86 map1 instruction which, when
+  // legacy encoded, uses a 0x0F opcode prefix.  By specification, the
+  // opcode prefix is omitted when using rex2 encoding in support
+  // of APX extended GPRs.
   void prefix(Address adr, bool is_map1 = false);
   void prefix_rex2(Address adr, bool is_map1 = false);
   void prefix(Address adr, Register reg,  bool byteinst = false, bool is_map1 = false);
@@ -752,10 +757,10 @@ private:
   // Some prefixq variants always emit exactly one prefix byte, so besides a
   // prefix-emitting method we provide a method to get the prefix byte to emit,
   // which can then be folded into a byte stream.
-  int get_prefixq(Address adr, bool isPage1 = false);
-  int get_prefixq_rex2(Address adr, bool isPage1 = false);
-  int get_prefixq(Address adr, Register reg, bool isPage1 = false);
-  int get_prefixq_rex2(Address adr, Register reg, bool isPage1 = false);
+  int get_prefixq(Address adr, bool is_map1 = false);
+  int get_prefixq_rex2(Address adr, bool is_map1 = false);
+  int get_prefixq(Address adr, Register reg, bool is_map1 = false);
+  int get_prefixq_rex2(Address adr, Register reg, bool ismap1 = false);
 
   void prefixq(Address adr);
   void prefixq(Address adr, Register reg, bool is_map1 = false);
@@ -770,6 +775,9 @@ private:
   int prefixq_and_encode_rex2(int dst_enc, int src_enc, bool is_map1 = false);
 
   bool needs_rex2(Register reg1, Register reg2 = noreg, Register reg3 = noreg);
+
+  bool needs_eevex(Register reg1, Register reg2 = noreg, Register reg3 = noreg);
+  bool needs_eevex(int enc1, int enc2 = -1, int enc3 = -1);
 
   void rex_prefix(Address adr, XMMRegister xreg,
                   VexSimdPrefix pre, VexOpcode opc, bool rex_w);
@@ -878,7 +886,9 @@ private:
   void emit_data64(jlong data, RelocationHolder const& rspec, int format = 0);
 
   void emit_prefix_and_int8(int prefix, int b1);
-
+  void emit_opcode_prefix_and_encoding(int byte1, int ocp_and_encoding);
+  void emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding);
+  void emit_opcode_prefix_and_encoding(int byte1, int byte2, int ocp_and_encoding, int byte3);
   bool always_reachable(AddressLiteral adr) NOT_LP64( { return true; } );
   bool        reachable(AddressLiteral adr) NOT_LP64( { return true; } );
 
@@ -1154,6 +1164,7 @@ private:
   void cdql();
 
   void cdqq();
+  void cdqe();
 
   void cld();
 
@@ -1169,12 +1180,15 @@ private:
 
 
   void cmpb(Address dst, int imm8);
+  void cmpb(Address dst, Register reg);
+  void cmpb(Register reg, Address dst);
 
   void cmpl(Address dst, int32_t imm32);
   void cmpl(Register dst, int32_t imm32);
   void cmpl(Register dst, Register src);
   void cmpl(Register dst, Address src);
   void cmpl_imm32(Address dst, int32_t imm32);
+  void cmpl(Address dst,  Register reg);
 
   void cmpq(Address dst, int32_t imm32);
   void cmpq(Address dst, Register src);
@@ -1183,6 +1197,7 @@ private:
   void cmpq(Register dst, Address src);
 
   void cmpw(Address dst, int imm16);
+  void cmpw(Address dst, Register reg);
 
   void cmpxchg8 (Address adr);
 
@@ -1785,7 +1800,7 @@ private:
   void negq(Address dst);
 #endif
 
-  void nop(int i = 1);
+  void nop(uint i = 1);
 
   void notl(Register dst);
 
@@ -1796,6 +1811,7 @@ private:
   void btrq(Address dst, int imm8);
   void btq(Register src, int imm8);
 #endif
+  void btq(Register dst, Register src);
 
   void orw(Register dst, Register src);
 
@@ -1861,6 +1877,7 @@ private:
   void vpcmpCCbwd(XMMRegister dst, XMMRegister nds, XMMRegister src, int cond_encoding, int vector_len);
 
   void vpcmpeqb(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
+  void vpcmpeqb(XMMRegister dst, XMMRegister src1, Address src2, int vector_len);
   void evpcmpeqb(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqb(KRegister kdst, XMMRegister nds, Address src, int vector_len);
   void evpcmpeqb(KRegister kdst, KRegister mask, XMMRegister nds, Address src, int vector_len);
@@ -1875,6 +1892,7 @@ private:
   void evpcmpuq(KRegister kdst, XMMRegister nds, XMMRegister src, ComparisonPredicate vcc, int vector_len);
 
   void pcmpeqw(XMMRegister dst, XMMRegister src);
+  void vpcmpeqw(XMMRegister dst, XMMRegister nds, Address src, int vector_len);
   void vpcmpeqw(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqw(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqw(KRegister kdst, XMMRegister nds, Address src, int vector_len);
@@ -2314,6 +2332,7 @@ private:
   void xorb(Address dst, Register src);
   void xorb(Register dst, Address src);
   void xorw(Register dst, Register src);
+  void xorw(Register dst, Address src);
 
   void xorq(Register dst, Address src);
   void xorq(Address dst, int32_t imm32);
@@ -2365,6 +2384,7 @@ private:
   void shrxq(Register dst, Address src1, Register src2);
 
   void bzhiq(Register dst, Register src1, Register src2);
+  void bzhil(Register dst, Register src1, Register src2);
 
   void pextl(Register dst, Register src1, Register src2);
   void pdepl(Register dst, Register src1, Register src2);
@@ -2640,6 +2660,7 @@ private:
   // Minimum of packed integers
   void pminsb(XMMRegister dst, XMMRegister src);
   void vpminsb(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
+  void vpminub(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
   void pminsw(XMMRegister dst, XMMRegister src);
   void vpminsw(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
   void pminsd(XMMRegister dst, XMMRegister src);

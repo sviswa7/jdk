@@ -950,13 +950,6 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
   }
 
-  if (UseAPX > 0 && !supports_apx_f()) {
-    warning("UseAPX=%d is not supported on this CPU, setting it to 0", UseAPX);
-    FLAG_SET_DEFAULT(UseAPX, 0);
-  } else if (FLAG_IS_DEFAULT(UseAPX)) {
-    FLAG_SET_DEFAULT(UseAPX, supports_apx_f() ? 1 : 0);
-  }
-
   if (UseAVX < 3) {
     _features &= ~CPU_AVX512F;
     _features &= ~CPU_AVX512DQ;
@@ -1008,6 +1001,13 @@ void VM_Version::get_processor_features() {
       _features &= ~CPU_AVX512_IFMA;
       _features &= ~CPU_AVX_IFMA;
     }
+  }
+
+  if (UseAPX > 0 && !supports_apx_f()) {
+    warning("UseAPX=%d is not supported on this CPU, setting it to 0", UseAPX);
+    FLAG_SET_DEFAULT(UseAPX, 0);
+  } else if (FLAG_IS_DEFAULT(UseAPX)) {
+    FLAG_SET_DEFAULT(UseAPX, supports_apx_f() ? 1 : 0);
   }
 
   if (FLAG_IS_DEFAULT(IntelJccErratumMitigation)) {
@@ -1372,6 +1372,18 @@ void VM_Version::get_processor_features() {
   if (UsePoly1305Intrinsics) {
     warning("Intrinsics for Poly1305 crypto hash functions not available on this CPU.");
     FLAG_SET_DEFAULT(UsePoly1305Intrinsics, false);
+  }
+
+#ifdef _LP64
+  if (supports_avx512ifma() && supports_avx512vlbw()) {
+    if (FLAG_IS_DEFAULT(UseIntPolyIntrinsics)) {
+      FLAG_SET_DEFAULT(UseIntPolyIntrinsics, true);
+    }
+  } else
+#endif
+  if (UseIntPolyIntrinsics) {
+    warning("Intrinsics for Polynomial crypto functions not available on this CPU.");
+    FLAG_SET_DEFAULT(UseIntPolyIntrinsics, false);
   }
 
 #ifdef _LP64
